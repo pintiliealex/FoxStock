@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Star, Plus, Trash2, Settings2, BarChart2, StarOff, ArrowUpRight, ArrowDownRight, Search } from "lucide-react";
 import Sparkline from "./Sparkline";
 import { AVAILABLE_INDICATORS } from "../data/mockStocks";
@@ -8,19 +8,54 @@ export default function Watchlist({
   favorites,
   onToggleFavorite,
   visibleIndicators,
-  onToggleIndicator
+  onToggleIndicator,
+  onAddCustomStock
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showConfig, setShowConfig] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const favoritedStocks = stocks.filter((s) => favorites.includes(s.symbol));
-  const availableToWatch = stocks.filter((s) => !favorites.includes(s.symbol));
 
-  const filteredAvailable = availableToWatch.filter(
-    (s) =>
-      s.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    const delayDebounce = setTimeout(async () => {
+      setIsSearching(true);
+      const query = searchQuery.trim();
+      const urls = [
+        `/api-yahoo/v1/finance/search?q=${query}`,
+        `https://corsproxy.io/?url=https://query1.finance.yahoo.com/v1/finance/search?q=${query}`,
+        `https://api.allorigins.win/raw?url=https://query1.finance.yahoo.com/v1/finance/search?q=${query}`
+      ];
+
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const data = await res.json();
+          const quotes = data?.quotes || [];
+          
+          // filter to equities with valid symbols
+          const filtered = quotes
+            .filter((q) => q.quoteType === "EQUITY" && q.symbol)
+            .slice(0, 6);
+            
+          setSearchResults(filtered);
+          break;
+        } catch (e) {
+          // continue to next URL
+        }
+      }
+      setIsSearching(false);
+    }, 400);
+
+    return () => clearTimeout(delayDebounce);
+  }, [searchQuery]);
 
   // Helper to render 52-week range bar
   const renderRange52 = (stock) => {
@@ -299,34 +334,51 @@ export default function Watchlist({
 
         {/* Results grid */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px" }}>
-          {filteredAvailable.map((stock) => (
-            <div 
-              key={stock.symbol} 
-              style={{ 
-                display: "flex", 
-                justifyContent: "space-between", 
-                alignItems: "center", 
-                padding: "14px 18px", 
-                borderRadius: "10px", 
-                background: "rgba(255,255,255,0.02)", 
-                border: "1px solid var(--border-glass)" 
-              }}
-            >
-              <div>
-                <span style={{ fontWeight: "700", color: "#fff", display: "block" }}>{stock.symbol}</span>
-                <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{stock.name}</span>
-              </div>
-              <button 
-                onClick={() => onToggleFavorite(stock.symbol)}
-                className="btn-primary"
-                style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "0.8rem", gap: "4px" }}
+          {isSearching && (
+            <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>Searching US stock market...</span>
+          )}
+          
+          {!isSearching && searchResults.map((result) => {
+            const isFavorited = favorites.includes(result.symbol);
+            return (
+              <div 
+                key={result.symbol} 
+                style={{ 
+                  display: "flex", 
+                  justifyContent: "space-between", 
+                  alignItems: "center", 
+                  padding: "14px 18px", 
+                  borderRadius: "10px", 
+                  background: "rgba(255,255,255,0.02)", 
+                  border: "1px solid var(--border-glass)" 
+                }}
               >
-                <Plus size={14} /> Add
-              </button>
-            </div>
-          ))}
-          {filteredAvailable.length === 0 && searchQuery !== "" && (
-            <span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>No stocks found matching "{searchQuery}"</span>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontWeight: "700", color: "#fff" }}>{result.symbol}</span>
+                    <span style={{ fontSize: "0.65rem", padding: "1px 4px", borderRadius: "3px", background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}>
+                      {result.exchange}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginTop: "2px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {result.shortname || result.longname || result.symbol}
+                  </span>
+                </div>
+                
+                <button 
+                  onClick={() => onAddCustomStock(result.symbol, result.shortname || result.longname)}
+                  className={isFavorited ? "btn-secondary" : "btn-primary"}
+                  disabled={isFavorited}
+                  style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "0.8rem", gap: "4px" }}
+                >
+                  {isFavorited ? "Added" : <><Plus size={14} /> Add</>}
+                </button>
+              </div>
+            );
+          })}
+
+          {!isSearching && searchResults.length === 0 && searchQuery.trim().length >= 2 && (
+            <span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>No stocks found on US market matching "{searchQuery}"</span>
           )}
         </div>
       </div>
