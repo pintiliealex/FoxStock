@@ -3,7 +3,9 @@ import { INITIAL_STOCKS, MOCK_INDICES, AVAILABLE_INDICATORS } from "./data/mockS
 import Dashboard from "./components/Dashboard";
 import Watchlist from "./components/Watchlist";
 import AlertsHub from "./components/AlertsHub";
-import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X } from "lucide-react";
+import Auth from "./components/Auth";
+import SmartBuy from "./components/SmartBuy";
+import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User } from "lucide-react";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -11,9 +13,27 @@ export default function App() {
   const [stocks, setStocks] = useState(INITIAL_STOCKS);
   const [indices, setIndices] = useState(MOCK_INDICES);
   
+  // User Session Management
+  const [currentUser, setCurrentUser] = useState(() => {
+    const savedUser = localStorage.getItem("foxstock-current-user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  const [users, setUsers] = useState(() => {
+    const savedUsers = localStorage.getItem("foxstock-users");
+    return savedUsers ? JSON.parse(savedUsers) : [];
+  });
+
+  // Load User Preferences dynamically based on current user
   const [favorites, setFavorites] = useState(() => {
-    const saved = localStorage.getItem("foxstock-favorites");
-    return saved ? JSON.parse(saved) : ["AAPL", "MSFT", "TSLA", "NVDA"];
+    return ["AAPL", "MSFT", "TSLA", "NVDA"];
+  });
+
+  const [alerts, setAlerts] = useState(() => {
+    return [
+      { id: "1", symbol: "AAPL", type: "price_below", value: 185.00, active: true },
+      { id: "2", symbol: "NVDA", type: "price_above", value: 890.00, active: true }
+    ];
   });
 
   const [visibleIndicators, setVisibleIndicators] = useState(() => {
@@ -21,15 +41,34 @@ export default function App() {
     return saved ? JSON.parse(saved) : AVAILABLE_INDICATORS.map(i => i.id);
   });
 
-  const [alerts, setAlerts] = useState(() => {
-    const saved = localStorage.getItem("foxstock-alerts");
-    return saved ? JSON.parse(saved) : [
-      { id: "1", symbol: "AAPL", type: "price_below", value: 185.00, active: true },
-      { id: "2", symbol: "NVDA", type: "price_above", value: 890.00, active: true }
-    ];
-  });
-
   const [notifications, setNotifications] = useState([]);
+
+  // Sync user state on login/switch
+  useEffect(() => {
+    if (currentUser) {
+      setFavorites(currentUser.favorites || ["AAPL", "MSFT", "TSLA"]);
+      setAlerts(currentUser.alerts || []);
+    } else {
+      setFavorites([]);
+      setAlerts([]);
+    }
+  }, [currentUser]);
+
+  // Save changes to the users list whenever favorites or alerts change
+  useEffect(() => {
+    if (currentUser) {
+      const updatedUser = { ...currentUser, favorites, alerts };
+      setCurrentUser(updatedUser);
+      localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+
+      // Update in main database
+      setUsers((prevUsers) => {
+        const nextUsers = prevUsers.map((u) => u.email === currentUser.email ? updatedUser : u);
+        localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+        return nextUsers;
+      });
+    }
+  }, [favorites, alerts]);
 
   // Theme Syncing
   useEffect(() => {
@@ -42,17 +81,127 @@ export default function App() {
     localStorage.setItem("foxstock-theme", theme);
   }, [theme]);
 
-  // Persist State
-  useEffect(() => {
-    localStorage.setItem("foxstock-favorites", JSON.stringify(favorites));
-  }, [favorites]);
-
   useEffect(() => {
     localStorage.setItem("foxstock-indicators", JSON.stringify(visibleIndicators));
   }, [visibleIndicators]);
 
+  // Auth Functions
+  const handleRegister = (email, password) => {
+    const exists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (exists) return false;
+
+    const newUser = {
+      email,
+      password,
+      favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
+      alerts: []
+    };
+
+    const nextUsers = [...users, newUser];
+    setUsers(nextUsers);
+    localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+
+    // Auto Login
+    setCurrentUser(newUser);
+    localStorage.setItem("foxstock-current-user", JSON.stringify(newUser));
+    return true;
+  };
+
+  const handleLogin = (email, password) => {
+    const foundUser = users.find(
+      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+    );
+    if (!foundUser) return false;
+
+    setCurrentUser(foundUser);
+    localStorage.setItem("foxstock-current-user", JSON.stringify(foundUser));
+    return true;
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem("foxstock-current-user");
+    setActiveTab("dashboard");
+  };
+
+  // Real-time market simulation loop
   useEffect(() => {
-    localStorage.setItem("foxstock-alerts", JSON.stringify(alerts));
+    const interval = setInterval(() => {
+      // Simulate stock price updates
+      setStocks((prevStocks) => {
+        return prevStocks.map((stock) => {
+          const volatility = 0.003;
+          const direction = Math.random() > 0.48 ? 1 : -1;
+          const changePercent = Math.random() * volatility * direction;
+          const priceDiff = stock.price * changePercent;
+          const newPrice = Math.max(1, stock.price + priceDiff);
+          const newChange = stock.change + priceDiff;
+          const newChangePercent = (newChange / (newPrice - newChange)) * 100;
+          
+          const newHistory = [...stock.history.slice(1), parseFloat(newPrice.toFixed(2))];
+
+          // Check if any active alerts are triggered for this stock
+          alerts.forEach((alert) => {
+            if (alert.symbol === stock.symbol && alert.active) {
+              let triggered = false;
+              if (alert.type === "price_below" && newPrice <= alert.value) {
+                triggered = true;
+              } else if (alert.type === "price_above" && newPrice >= alert.value) {
+                triggered = true;
+              } else if (alert.type === "pe_below" && stock.peRatio <= alert.value) {
+                triggered = true;
+              }
+
+              if (triggered) {
+                const newNotification = {
+                  id: Date.now() + Math.random().toString(36).substr(2, 5),
+                  type: alert.type === "price_below" ? "danger" : "success",
+                  text: `ALERT: ${stock.symbol} condition triggered! Value is ${
+                    alert.type.includes("pe") ? "P/E " : "$"
+                  }${newPrice.toFixed(2)}.`
+                };
+                setNotifications((prev) => [newNotification, ...prev]);
+
+                // Auto-deactivate alert trigger
+                setAlerts((prevAlerts) =>
+                  prevAlerts.map((a) => (a.id === alert.id ? { ...a, active: false } : a))
+                );
+              }
+            }
+          });
+
+          return {
+            ...stock,
+            price: parseFloat(newPrice.toFixed(2)),
+            change: parseFloat(newChange.toFixed(2)),
+            changePercent: parseFloat(newChangePercent.toFixed(2)),
+            history: newHistory
+          };
+        });
+      });
+
+      // Simulate index updates
+      setIndices((prevIndices) => {
+        return prevIndices.map((idx) => {
+          const volatility = 0.001;
+          const direction = Math.random() > 0.49 ? 1 : -1;
+          const priceDiff = idx.price * volatility * direction * Math.random();
+          const newPrice = idx.price + priceDiff;
+          const newChange = idx.change + priceDiff;
+          const newChangePercent = (newChange / (newPrice - newChange)) * 100;
+
+          return {
+            ...idx,
+            price: parseFloat(newPrice.toFixed(2)),
+            change: parseFloat(newChange.toFixed(2)),
+            changePercent: parseFloat(newChangePercent.toFixed(2))
+          };
+        });
+      });
+
+    }, 4000);
+
+    return () => clearInterval(interval);
   }, [alerts]);
 
   // Live Yahoo Finance fetching
@@ -123,89 +272,6 @@ export default function App() {
     return () => clearInterval(liveInterval);
   }, []);
 
-  // Real-time market simulation loop
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Simulate stock price updates
-      setStocks((prevStocks) => {
-        return prevStocks.map((stock) => {
-          // Standard random walk
-          const volatility = 0.003; // max 0.3% change per tick
-          const direction = Math.random() > 0.48 ? 1 : -1;
-          const changePercent = Math.random() * volatility * direction;
-          const priceDiff = stock.price * changePercent;
-          const newPrice = Math.max(1, stock.price + priceDiff);
-          const newChange = stock.change + priceDiff;
-          const newChangePercent = (newChange / (newPrice - newChange)) * 100;
-          
-          // History update (keep last 30 entries)
-          const newHistory = [...stock.history.slice(1), parseFloat(newPrice.toFixed(2))];
-
-          // Check if any active alerts are triggered for this stock
-          alerts.forEach((alert) => {
-            if (alert.symbol === stock.symbol && alert.active) {
-              let triggered = false;
-              if (alert.type === "price_below" && newPrice <= alert.value) {
-                triggered = true;
-              } else if (alert.type === "price_above" && newPrice >= alert.value) {
-                triggered = true;
-              } else if (alert.type === "pe_below" && stock.peRatio <= alert.value) {
-                triggered = true;
-              }
-
-              if (triggered) {
-                // Add notification
-                const newNotification = {
-                  id: Date.now() + Math.random().toString(36).substr(2, 5),
-                  type: alert.type === "price_below" ? "danger" : "success",
-                  text: `ALERT: ${stock.symbol} condition triggered! Value is ${
-                    alert.type.includes("pe") ? "P/E " : "$"
-                  }${newPrice.toFixed(2)}.`
-                };
-                setNotifications((prev) => [newNotification, ...prev]);
-
-                // Auto-deactivate alert trigger
-                setAlerts((prevAlerts) =>
-                  prevAlerts.map((a) => (a.id === alert.id ? { ...a, active: false } : a))
-                );
-              }
-            }
-          });
-
-          return {
-            ...stock,
-            price: parseFloat(newPrice.toFixed(2)),
-            change: parseFloat(newChange.toFixed(2)),
-            changePercent: parseFloat(newChangePercent.toFixed(2)),
-            history: newHistory
-          };
-        });
-      });
-
-      // Simulate index updates
-      setIndices((prevIndices) => {
-        return prevIndices.map((idx) => {
-          const volatility = 0.001;
-          const direction = Math.random() > 0.49 ? 1 : -1;
-          const priceDiff = idx.price * volatility * direction * Math.random();
-          const newPrice = idx.price + priceDiff;
-          const newChange = idx.change + priceDiff;
-          const newChangePercent = (newChange / (newPrice - newChange)) * 100;
-
-          return {
-            ...idx,
-            price: parseFloat(newPrice.toFixed(2)),
-            change: parseFloat(newChange.toFixed(2)),
-            changePercent: parseFloat(newChangePercent.toFixed(2))
-          };
-        });
-      });
-
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [alerts]);
-
   // Alert State Handlers
   const handleAddAlert = (newAlert) => {
     setAlerts((prev) => [
@@ -230,9 +296,7 @@ export default function App() {
     );
   };
 
-  // Trigger manual AI simulation update
   const handleTriggerAIRatingUpdate = () => {
-    // Randomize rating score and reasoning slightly to simulate recalculation
     setStocks((prev) =>
       prev.map((stock) => {
         const volatility = 0.2;
@@ -253,7 +317,6 @@ export default function App() {
       })
     );
 
-    // Prompt user with a notice
     const newNotif = {
       id: Date.now().toString(),
       type: "info",
@@ -278,10 +341,14 @@ export default function App() {
     );
   };
 
-  // Close single notification
   const handleDismissNotification = (id) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
+
+  // Render Auth screen if not logged in
+  if (!currentUser) {
+    return <Auth onLogin={handleLogin} onRegister={handleRegister} />;
+  }
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -309,6 +376,8 @@ export default function App() {
         display: "flex", 
         justifyContent: "space-between", 
         alignItems: "center",
+        flexWrap: "wrap",
+        gap: "12px",
         borderRadius: "var(--radius-md)"
       }}>
         
@@ -330,51 +399,97 @@ export default function App() {
           </span>
         </div>
 
-        {/* Desktop navigation tabs */}
-        <nav style={{ display: "flex", gap: "8px" }}>
+        {/* Navigation tabs */}
+        <nav style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
           <button 
             className={activeTab === "dashboard" ? "btn-primary" : "btn-secondary"} 
             onClick={() => setActiveTab("dashboard")}
-            style={{ padding: "8px 16px", borderRadius: "10px", gap: "6px", fontSize: "0.9rem" }}
+            style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
           >
-            <LayoutDashboard size={16} /> Dashboard
+            <LayoutDashboard size={14} /> Dashboard
           </button>
           <button 
             className={activeTab === "watchlist" ? "btn-primary" : "btn-secondary"} 
             onClick={() => setActiveTab("watchlist")}
-            style={{ padding: "8px 16px", borderRadius: "10px", gap: "6px", fontSize: "0.9rem" }}
+            style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
           >
-            <Star size={16} /> Watchlist
+            <Star size={14} /> Watchlist
+          </button>
+          <button 
+            className={activeTab === "smart_buy" ? "btn-primary" : "btn-secondary"} 
+            onClick={() => setActiveTab("smart_buy")}
+            style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
+          >
+            <BrainCircuit size={14} /> Smart Buy
           </button>
           <button 
             className={activeTab === "alerts" ? "btn-primary" : "btn-secondary"} 
             onClick={() => setActiveTab("alerts")}
-            style={{ padding: "8px 16px", borderRadius: "10px", gap: "6px", fontSize: "0.9rem" }}
+            style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
           >
-            <Bell size={16} /> Alerts & AI
+            <Bell size={14} /> Alerts & AI
           </button>
         </nav>
 
-        {/* Theme control toggle */}
-        <button 
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          style={{ 
-            background: "none", 
-            border: "1px solid var(--border-glass)", 
-            color: "var(--text-primary)", 
-            padding: "8px", 
-            borderRadius: "10px", 
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: "36px",
-            height: "36px"
-          }}
-          title={theme === "dark" ? "Toggle Light Mode" : "Toggle Dark Mode"}
-        >
-          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+        {/* User profile controls & theme */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "8px", 
+            padding: "6px 12px", 
+            borderRadius: "8px", 
+            background: "rgba(255,255,255,0.03)", 
+            border: "1px solid var(--border-glass)",
+            fontSize: "0.8rem",
+            color: "var(--text-secondary)"
+          }}>
+            <User size={12} />
+            <span style={{ maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {currentUser.email}
+            </span>
+          </div>
+
+          <button 
+            onClick={handleLogout}
+            style={{ 
+              background: "none", 
+              border: "1px solid var(--color-danger)", 
+              color: "var(--color-danger)", 
+              padding: "8px", 
+              borderRadius: "10px", 
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "36px",
+              height: "36px"
+            }}
+            title="Log Out"
+          >
+            <LogOut size={16} />
+          </button>
+
+          <button 
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            style={{ 
+              background: "none", 
+              border: "1px solid var(--border-glass)", 
+              color: "var(--text-primary)", 
+              padding: "8px", 
+              borderRadius: "10px", 
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "36px",
+              height: "36px"
+            }}
+            title={theme === "dark" ? "Toggle Light Mode" : "Toggle Dark Mode"}
+          >
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+        </div>
       </header>
 
       {/* Primary body view content */}
@@ -396,6 +511,14 @@ export default function App() {
             onToggleFavorite={handleToggleFavorite}
             visibleIndicators={visibleIndicators}
             onToggleIndicator={handleToggleIndicator}
+          />
+        )}
+
+        {activeTab === "smart_buy" && (
+          <SmartBuy 
+            stocks={stocks}
+            favorites={favorites}
+            onToggleFavorite={handleToggleFavorite}
           />
         )}
 

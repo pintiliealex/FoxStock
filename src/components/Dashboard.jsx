@@ -1,5 +1,4 @@
-import React from "react";
-import { TrendingUp, Bell, Star, ArrowUpRight, ArrowDownRight, Activity, ShieldAlert, Cpu } from "lucide-react";
+import { TrendingUp, Bell, Star, ArrowUpRight, ArrowDownRight, Activity, ShieldAlert, Cpu, BrainCircuit } from "lucide-react";
 
 export default function Dashboard({ 
   onNavigate, 
@@ -65,7 +64,7 @@ export default function Dashboard({
         <h2 style={{ textAlign: "left", marginBottom: "16px", fontSize: "1.3rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px" }}>
           <Activity size={18} color="var(--color-primary)" /> Screen Modules
         </h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "24px" }}>
           
           <div 
             className="glass-card-interactive" 
@@ -83,6 +82,25 @@ export default function Dashboard({
             </div>
             <div style={{ display: "flex", justifySelf: "flex-end", alignItems: "center", gap: "6px", color: "var(--color-primary)", fontWeight: "600", fontSize: "0.9rem", marginTop: "auto" }}>
               Track {favorites.length} Stocks <ArrowUpRight size={16} />
+            </div>
+          </div>
+
+          <div 
+            className="glass-card-interactive" 
+            style={{ padding: "32px", textAlign: "left", display: "flex", flexDirection: "column", gap: "16px" }}
+            onClick={() => onNavigate("smart_buy")}
+          >
+            <div style={{ width: "48px", height: "48px", borderRadius: "12px", backgroundColor: "rgba(139, 92, 246, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <BrainCircuit size={24} color="var(--color-primary)" />
+            </div>
+            <div>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: "600", marginBottom: "8px" }}>AI Smart Buy Selector</h3>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: "1.5" }}>
+                Scan the global indices, evaluate price drop metrics, and generate customized top stock picks through our smart trading agent prompts.
+              </p>
+            </div>
+            <div style={{ display: "flex", justifySelf: "flex-end", alignItems: "center", gap: "6px", color: "var(--color-primary)", fontWeight: "600", fontSize: "0.9rem", marginTop: "auto" }}>
+              Run AI Prompts <ArrowUpRight size={16} />
             </div>
           </div>
 
