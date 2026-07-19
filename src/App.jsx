@@ -28,7 +28,8 @@ export default function App() {
         verificationCode: "",
         blocked: false,
         favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-        alerts: []
+        alerts: [],
+        triggeredAlerts: []
       };
       const newUsers = [defaultAdmin, ...parsed];
       localStorage.setItem("foxstock-users", JSON.stringify(newUsers));
@@ -50,6 +51,14 @@ export default function App() {
     return saved ? JSON.parse(saved) : AVAILABLE_INDICATORS.map(i => i.id);
   });
 
+  // Triggered Alerts Logs List
+  const [triggeredAlertLogs, setTriggeredAlertLogs] = useState(() => {
+    if (currentUser) {
+      return currentUser.triggeredAlerts || [];
+    }
+    return [];
+  });
+
   // Change Password Modal States
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [oldPassInput, setOldPassInput] = useState("");
@@ -57,6 +66,9 @@ export default function App() {
   const [confirmNewPassInput, setConfirmNewPassInput] = useState("");
   const [passModalError, setPassModalError] = useState("");
   const [passModalSuccess, setPassModalSuccess] = useState("");
+
+  // Triggered Alerts Tray display
+  const [showAlertsInbox, setShowAlertsInbox] = useState(false);
 
   // Daily Picks Database shared by all accounts
   const [dailyPicks, setDailyPicks] = useState(() => {
@@ -89,6 +101,7 @@ export default function App() {
       const userFavs = currentUser.favorites || [];
       setFavorites(userFavs);
       setAlerts(currentUser.alerts || []);
+      setTriggeredAlertLogs(currentUser.triggeredAlerts || []);
       
       // Ensure all favorites exist in the stocks array immediately!
       if (userFavs.length > 0) {
@@ -108,8 +121,11 @@ export default function App() {
                 changePercent: 0.00,
                 peRatio: 24.5,
                 forwardPe: 20.8,
+                industryPe: 25.8,
                 low52: 80.00,
                 high52: 120.00,
+                ath: 120.00,
+                athDate: "2024-07-15",
                 analystTarget: 118.00,
                 consensus: "Buy",
                 ratingScore: 4.1,
@@ -133,6 +149,7 @@ export default function App() {
     } else {
       setFavorites([]);
       setAlerts([]);
+      setTriggeredAlertLogs([]);
     }
   }, [currentUser]);
 
@@ -165,7 +182,8 @@ export default function App() {
       verificationCode,
       blocked: false,
       favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
-      alerts: []
+      alerts: [],
+      triggeredAlerts: []
     };
 
     const nextUsers = [...savedUsers, newUser];
@@ -236,6 +254,7 @@ export default function App() {
     setCurrentUser(null);
     localStorage.removeItem("foxstock-current-user");
     setActiveTab("dashboard");
+    setShowAlertsInbox(false);
   };
 
   // Change Password
@@ -264,7 +283,6 @@ export default function App() {
       return;
     }
 
-    // Update in database and state
     const updatedUser = { ...currentUser, password: newPassInput };
     setCurrentUser(updatedUser);
     localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
@@ -287,12 +305,13 @@ export default function App() {
   };
 
   // Helper database synchronizer (avoids infinite loops)
-  const syncPreferencesToDb = (nextFavorites, nextAlerts) => {
+  const syncPreferencesToDb = (nextFavorites, nextAlerts, nextTriggeredAlerts) => {
     if (!currentUser) return;
     const updatedUser = { 
       ...currentUser, 
       favorites: nextFavorites || favorites, 
-      alerts: nextAlerts || alerts 
+      alerts: nextAlerts || alerts,
+      triggeredAlerts: nextTriggeredAlerts || triggeredAlertLogs
     };
     
     setCurrentUser(updatedUser);
@@ -350,6 +369,117 @@ export default function App() {
     setNotifications((prev) => [newNotif, ...prev]);
   };
 
+  // Shared Alert checking & trigger logging
+  const checkAndTriggerAlerts = (symbol, currentPrice, peRatio) => {
+    setAlerts((prevAlerts) => {
+      let triggeredAny = false;
+      const nextAlerts = prevAlerts.map((alert) => {
+        if (alert.symbol === symbol && alert.active) {
+          let triggered = false;
+          if (alert.type === "price_below" && currentPrice <= alert.value) {
+            triggered = true;
+          } else if (alert.type === "price_above" && currentPrice >= alert.value) {
+            triggered = true;
+          } else if (alert.type === "pe_below" && peRatio <= alert.value) {
+            triggered = true;
+          }
+
+          if (triggered) {
+            triggeredAny = true;
+            
+            const newLog = {
+              id: Date.now() + Math.random().toString(36).substr(2, 5),
+              symbol,
+              type: alert.type,
+              limitValue: alert.value,
+              triggerValue: currentPrice,
+              triggeredAt: new Date().toLocaleTimeString(),
+              read: false
+            };
+
+            setTriggeredAlertLogs((prevLogs) => {
+              const nextLogs = [newLog, ...prevLogs];
+              if (currentUser) {
+                const updatedUser = { 
+                  ...currentUser, 
+                  alerts: prevAlerts.map(a => a.id === alert.id ? { ...a, active: false } : a),
+                  triggeredAlerts: nextLogs
+                };
+                localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+                setUsers((prevUsers) => {
+                  const nextUsers = prevUsers.map(u => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+                  localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+                  return nextUsers;
+                });
+              }
+              return nextLogs;
+            });
+
+            // Transient banner notification
+            const newNotification = {
+              id: Date.now() + Math.random().toString(36).substr(2, 5),
+              type: "danger",
+              text: `ALERT: ${symbol} price parameter met! Triggered value is $${currentPrice.toFixed(2)}.`
+            };
+            setNotifications((prev) => [newNotification, ...prev]);
+
+            return { ...alert, active: false }; // deactivate limit tracker
+          }
+        }
+        return alert;
+      });
+
+      if (triggeredAny) {
+        syncPreferencesToDb(favorites, nextAlerts, null);
+      }
+      return nextAlerts;
+    });
+  };
+
+  // Mark specific triggered alert as read
+  const handleMarkAlertAsRead = (logId) => {
+    setTriggeredAlertLogs((prevLogs) => {
+      const nextLogs = prevLogs.map((log) => log.id === logId ? { ...log, read: true } : log);
+      const targetLog = prevLogs.find(l => l.id === logId);
+      
+      setAlerts((prevAlerts) => {
+        const nextAlerts = prevAlerts.map(alert => {
+          if (targetLog && alert.symbol === targetLog.symbol && alert.type === targetLog.type) {
+            return { ...alert, active: false }; // deactivate limit tracker
+          }
+          return alert;
+        });
+        
+        syncPreferencesToDb(favorites, nextAlerts, nextLogs);
+        return nextAlerts;
+      });
+      
+      return nextLogs;
+    });
+  };
+
+  // Mark all unread alerts as read
+  const handleMarkAllAlertsAsRead = () => {
+    setTriggeredAlertLogs((prevLogs) => {
+      const nextLogs = prevLogs.map((log) => ({ ...log, read: true }));
+      
+      setAlerts((prevAlerts) => {
+        const nextAlerts = prevAlerts.map(alert => {
+          const wasTriggered = prevLogs.some(log => !log.read && log.symbol === alert.symbol && log.type === alert.type);
+          if (wasTriggered) {
+            return { ...alert, active: false }; // deactivate limit tracker
+          }
+          return alert;
+        });
+        
+        syncPreferencesToDb(favorites, nextAlerts, nextLogs);
+        return nextAlerts;
+      });
+      
+      return nextLogs;
+    });
+  };
+
   // Real-time market simulation loop
   useEffect(() => {
     const interval = setInterval(() => {
@@ -385,37 +515,8 @@ export default function App() {
             updatedHigh52 = Math.max(updatedHigh52, newPrice);
           }
 
-          // Check if any active alerts are triggered for this stock
-          alerts.forEach((alert) => {
-            if (alert.symbol === stock.symbol && alert.active) {
-              let triggered = false;
-              if (alert.type === "price_below" && newPrice <= alert.value) {
-                triggered = true;
-              } else if (alert.type === "price_above" && newPrice >= alert.value) {
-                triggered = true;
-              } else if (alert.type === "pe_below" && stock.peRatio <= alert.value) {
-                triggered = true;
-              }
-
-              if (triggered) {
-                const newNotification = {
-                  id: Date.now() + Math.random().toString(36).substr(2, 5),
-                  type: alert.type === "price_below" ? "danger" : "success",
-                  text: `ALERT: ${stock.symbol} condition triggered! Value is ${
-                    alert.type.includes("pe") ? "P/E " : "$"
-                  }${newPrice.toFixed(2)}.`
-                };
-                setNotifications((prev) => [newNotification, ...prev]);
-
-                // Auto-deactivate alert trigger
-                setAlerts((prevAlerts) => {
-                  const nextAlerts = prevAlerts.map((a) => (a.id === alert.id ? { ...a, active: false } : a));
-                  syncPreferencesToDb(favorites, nextAlerts);
-                  return nextAlerts;
-                });
-              }
-            }
-          });
+          // Check alerts dynamically
+          checkAndTriggerAlerts(stock.symbol, newPrice, stock.peRatio);
 
           const currentAth = typeof stock.ath === "number" ? stock.ath : newPrice;
           const updatedAth = newPrice > currentAth ? newPrice : currentAth;
@@ -526,6 +627,9 @@ export default function App() {
               }
             }
 
+            // Check alerts dynamically
+            checkAndTriggerAlerts(stock.symbol, liveData.price, stock.peRatio);
+
             const currentAth = typeof stock.ath === "number" ? stock.ath : liveData.price;
             const updatedAth = liveData.price > currentAth ? liveData.price : currentAth;
             const updatedAthDate = liveData.price > currentAth ? new Date().toISOString().split('T')[0] : (stock.athDate || "2024-07-15");
@@ -621,7 +725,7 @@ export default function App() {
           active: true
         }
       ];
-      syncPreferencesToDb(favorites, nextAlerts);
+      syncPreferencesToDb(favorites, nextAlerts, null);
       return nextAlerts;
     });
   };
@@ -629,7 +733,7 @@ export default function App() {
   const handleRemoveAlert = (alertId) => {
     setAlerts((prev) => {
       const nextAlerts = prev.filter((a) => a.id !== alertId);
-      syncPreferencesToDb(favorites, nextAlerts);
+      syncPreferencesToDb(favorites, nextAlerts, null);
       return nextAlerts;
     });
   };
@@ -637,7 +741,7 @@ export default function App() {
   const handleToggleAlertStatus = (alertId) => {
     setAlerts((prev) => {
       const nextAlerts = prev.map((a) => (a.id === alertId ? { ...a, active: !a.active } : a));
-      syncPreferencesToDb(favorites, nextAlerts);
+      syncPreferencesToDb(favorites, nextAlerts, null);
       return nextAlerts;
     });
   };
@@ -676,7 +780,7 @@ export default function App() {
       const nextFavorites = prev.includes(symbol)
         ? prev.filter((s) => s !== symbol)
         : [...prev, symbol];
-      syncPreferencesToDb(nextFavorites, alerts);
+      syncPreferencesToDb(nextFavorites, alerts, null);
       return nextFavorites;
     });
   };
@@ -707,8 +811,11 @@ export default function App() {
         changePercent: 0.00,
         peRatio: 24.5,
         forwardPe: 20.8,
+        industryPe: 25.8,
         low52: 80.00,
         high52: 120.00,
+        ath: 120.00,
+        athDate: "2024-07-15",
         analystTarget: 118.00,
         consensus: "Buy",
         ratingScore: 4.1,
@@ -727,10 +834,9 @@ export default function App() {
     if (!favorites.includes(sym)) {
       setFavorites((prev) => {
         const nextFavorites = [...prev, sym];
-        syncPreferencesToDb(nextFavorites, alerts);
+        syncPreferencesToDb(nextFavorites, alerts, null);
         return nextFavorites;
       });
-      // Fetch prices immediately
       fetchLivePrices([...favorites, sym]);
     }
   };
@@ -748,6 +854,7 @@ export default function App() {
   }
 
   const isAdmin = currentUser.role === "admin";
+  const unreadAlertsCount = triggeredAlertLogs.filter((l) => !l.read).length;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -799,7 +906,7 @@ export default function App() {
         </div>
 
         {/* Navigation tabs */}
-        <nav style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+        <nav style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
           <button 
             className={activeTab === "dashboard" ? "btn-primary" : "btn-secondary"} 
             onClick={() => setActiveTab("dashboard")}
@@ -837,6 +944,29 @@ export default function App() {
               style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem", border: "1px solid rgba(139, 92, 246, 0.4)" }}
             >
               <ShieldAlert size={14} color="var(--color-primary)" /> Admin Panel
+            </button>
+          )}
+
+          {/* Triggered Alerts inbox header tab */}
+          {unreadAlertsCount > 0 && (
+            <button 
+              className="btn-primary pulsing-glow" 
+              onClick={() => setShowAlertsInbox(true)}
+              style={{ 
+                padding: "8px 14px", 
+                borderRadius: "10px", 
+                gap: "6px", 
+                fontSize: "0.85rem", 
+                background: "linear-gradient(135deg, var(--color-danger), #ef4444)",
+                border: "none",
+                color: "#fff",
+                fontWeight: "600",
+                display: "flex",
+                alignItems: "center"
+              }}
+            >
+              <Bell size={14} className="bell-shake" />
+              <span>{unreadAlertsCount} Unread Alerts</span>
             </button>
           )}
         </nav>
@@ -1057,6 +1187,122 @@ export default function App() {
                 Update Password
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Triggered Alerts Inbox Modal Tray */}
+      {showAlertsInbox && (
+        <div style={{ 
+          position: "fixed", 
+          top: 0, left: 0, right: 0, bottom: 0, 
+          backgroundColor: "rgba(0,0,0,0.6)", 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "center", 
+          zIndex: 2000,
+          backdropFilter: "blur(8px)"
+        }}>
+          <div className="glass-panel" style={{ 
+            width: "100%", 
+            maxWidth: "460px", 
+            padding: "32px", 
+            display: "flex", 
+            flexDirection: "column", 
+            gap: "20px",
+            maxHeight: "85vh"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", color: "var(--color-danger)" }}>
+                <Bell size={18} /> Triggered Market Alerts ({unreadAlertsCount})
+              </h3>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button 
+                  onClick={handleMarkAllAlertsAsRead}
+                  className="btn-secondary"
+                  style={{ padding: "4px 8px", fontSize: "0.75rem", borderRadius: "6px" }}
+                >
+                  Mark All Read
+                </button>
+                <button 
+                  onClick={() => setShowAlertsInbox(false)}
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex" }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <hr style={{ border: "none", borderTop: "1px solid var(--border-glass)", margin: 0 }} />
+
+            <div style={{ 
+              display: "flex", 
+              flexDirection: "column", 
+              gap: "10px", 
+              overflowY: "auto", 
+              maxHeight: "50vh",
+              paddingRight: "4px"
+            }}>
+              {triggeredAlertLogs.filter(l => !l.read).length === 0 ? (
+                <div style={{ padding: "24px", color: "var(--text-secondary)", fontSize: "0.9rem", textAlign: "center" }}>
+                  All triggered alerts have been read.
+                </div>
+              ) : (
+                triggeredAlertLogs.filter(l => !l.read).map((log) => {
+                  const typeLabel = log.type === "price_below" ? "dropped below" : log.type === "price_above" ? "rose above" : "P/E fell below";
+                  const priceSymbol = log.type.includes("pe") ? "" : "$";
+
+                  return (
+                    <div 
+                      key={log.id} 
+                      className="glass-panel" 
+                      style={{ 
+                        padding: "14px 18px", 
+                        display: "flex", 
+                        justifyContent: "space-between", 
+                        alignItems: "center",
+                        gap: "12px",
+                        backgroundColor: "rgba(239, 68, 68, 0.04)",
+                        border: "1px solid rgba(239, 68, 68, 0.15)"
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" }}>
+                        <span style={{ fontSize: "0.9rem", fontWeight: "700", color: "#fff" }}>
+                          {log.symbol}
+                        </span>
+                        <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", margin: 0 }}>
+                          Price {typeLabel} {priceSymbol}{log.limitValue.toFixed(2)} (Triggered at: {priceSymbol}{log.triggerValue.toFixed(2)})
+                        </p>
+                        <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                          Time: {log.triggeredAt}
+                        </span>
+                      </div>
+
+                      <button 
+                        onClick={() => handleMarkAlertAsRead(log.id)}
+                        className="btn-secondary"
+                        style={{ 
+                          padding: "6px 10px", 
+                          fontSize: "0.75rem", 
+                          borderRadius: "6px",
+                          flexShrink: 0
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button 
+              onClick={() => setShowAlertsInbox(false)}
+              className="btn-primary" 
+              style={{ width: "100%", justifyContent: "center", padding: "10px", borderRadius: "6px", fontSize: "0.85rem" }}
+            >
+              Close Tray
+            </button>
           </div>
         </div>
       )}

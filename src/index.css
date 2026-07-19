@@ -304,3 +304,33 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+/* Custom Alert Animations */
+.pulsing-glow {
+  animation: pulseRed 1.8s infinite alternate;
+}
+
+@keyframes pulseRed {
+  0% {
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+  }
+  100% {
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.8), 0 0 24px rgba(239, 68, 68, 0.4);
+  }
+}
+
+.bell-shake {
+  animation: shake 0.8s ease-in-out infinite;
+  transform-origin: 50% 0%;
+}
+
+@keyframes shake {
+  0% { transform: rotate(0); }
+  15% { transform: rotate(8deg); }
+  30% { transform: rotate(-8deg); }
+  45% { transform: rotate(4deg); }
+  60% { transform: rotate(-4deg); }
+  75% { transform: rotate(2deg); }
+  85% { transform: rotate(-2deg); }
+  100% { transform: rotate(0); }
+}
