@@ -120,7 +120,7 @@ export default function App() {
   const syncUsersFromCloud = async () => {
     setDbStatus("syncing");
     try {
-      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_sync_db_v3/users_list?cb=${Date.now()}`, {
+      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_registry_v1/users_list?cb=${Date.now()}`, {
         credentials: "omit"
       });
       if (res.ok) {
@@ -203,7 +203,7 @@ export default function App() {
       const value = JSON.stringify(nextUsers);
       const encoded = toBase64Url(value);
       // POST as a Simple Request (no preflight) with a dummy body to satisfy standard-spec proxies and firewalls
-      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_cloud_sync_db_v3/users_list/${encoded}`, {
+      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_cloud_registry_v1/users_list/${encoded}`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "updated=true",
@@ -1317,7 +1317,7 @@ export default function App() {
             onSyncDatabase={syncUsersFromCloud}
             dbStatus={dbStatus}
             lastSyncTime={lastSyncTime}
-            dbKey="foxstock_cloud_sync_db_v3"
+            dbKey="foxstock_cloud_registry_v1"
           />
         )}
       </main>
