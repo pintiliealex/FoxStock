@@ -1,7 +1,7 @@
 import React from "react";
-import { Users, ShieldCheck, Ban, CheckCircle, HelpCircle, UserX, UserCheck, ShieldAlert } from "lucide-react";
+import { Users, ShieldCheck, Ban, CheckCircle, HelpCircle, UserX, UserCheck, ShieldAlert, Activity } from "lucide-react";
 
-export default function AdminPanel({ users, onToggleBlockUser, onToggleUserRole }) {
+export default function AdminPanel({ users, onToggleBlockUser, onToggleUserRole, onSyncDatabase }) {
   const totalUsers = users.length;
   const blockedUsers = users.filter((u) => u.blocked).length;
   const pendingUsers = users.filter((u) => u.status === "pending").length;
@@ -11,11 +11,31 @@ export default function AdminPanel({ users, onToggleBlockUser, onToggleUserRole 
     <div style={{ display: "flex", flexDirection: "column", gap: "28px", padding: "24px 0", textAlign: "left" }}>
       
       {/* Title */}
-      <div>
-        <h1 style={{ fontSize: "2rem" }}>Admin Management Dashboard</h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-          Monitor system metrics, review registered profiles, and configure access permissions.
-        </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+        <div>
+          <h1 style={{ fontSize: "2rem" }}>Admin Management Dashboard</h1>
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+            Monitor system metrics, review registered profiles, and configure access permissions.
+          </p>
+        </div>
+        {onSyncDatabase && (
+          <button 
+            onClick={onSyncDatabase}
+            className="btn-primary"
+            style={{ 
+              padding: "10px 16px", 
+              borderRadius: "10px", 
+              fontSize: "0.85rem", 
+              display: "flex", 
+              alignItems: "center", 
+              gap: "6px",
+              border: "none",
+              cursor: "pointer"
+            }}
+          >
+            <Activity size={14} /> Refresh Cloud Database
+          </button>
+        )}
       </div>
 
       {/* Stats Cards */}

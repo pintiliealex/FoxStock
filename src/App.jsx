@@ -630,9 +630,33 @@ export default function App() {
     });
   };
 
+  const isMarketOpen = () => {
+    // Get Eastern Time (New York timezone)
+    const options = { timeZone: "America/New_York", hour12: false };
+    const dateStr = new Date().toLocaleString("en-US", options);
+    const estDate = new Date(dateStr);
+    
+    const day = estDate.getDay(); // 0 = Sunday, 6 = Saturday
+    const hour = estDate.getHours();
+    const minute = estDate.getMinutes();
+
+    // Weekend check
+    if (day === 0 || day === 6) return false;
+
+    // Market hours check (9:30 AM to 4:00 PM EST)
+    const timeInMinutes = hour * 60 + minute;
+    const marketOpenMinutes = 9 * 60 + 30;  // 9:30 AM
+    const marketCloseMinutes = 16 * 60;     // 4:00 PM
+
+    return timeInMinutes >= marketOpenMinutes && timeInMinutes < marketCloseMinutes;
+  };
+
   // Real-time market simulation loop
   useEffect(() => {
     const interval = setInterval(() => {
+      // Do not run simulation updates on weekends or outside market hours
+      if (!isMarketOpen()) return;
+
       setStocks((prevStocks) => {
         return prevStocks.map((stock) => {
           const volatility = 0.002;
@@ -640,8 +664,11 @@ export default function App() {
           const changePercent = Math.random() * volatility * direction;
           const priceDiff = stock.price * changePercent;
           const newPrice = Math.max(1, stock.price + priceDiff);
-          const newChange = stock.change + priceDiff;
-          const newChangePercent = (newChange / (newPrice - newChange)) * 100;
+          
+          // Anchored to prevClose baseline to prevent compounding runway changes
+          const prevClose = stock.prevClose || (stock.price - stock.change);
+          const newChange = newPrice - prevClose;
+          const newChangePercent = (newChange / prevClose) * 100;
           
           const activeRange = stock.activeRange || "1mo";
           const newHistory = [...stock.history];
@@ -677,6 +704,7 @@ export default function App() {
             price: parseFloat(newPrice.toFixed(2)),
             change: parseFloat(newChange.toFixed(2)),
             changePercent: parseFloat(newChangePercent.toFixed(2)),
+            prevClose: parseFloat(prevClose.toFixed(2)),
             low52: parseFloat(updatedLow52.toFixed(2)),
             high52: parseFloat(updatedHigh52.toFixed(2)),
             ath: parseFloat(updatedAth.toFixed(2)),
@@ -1253,6 +1281,7 @@ export default function App() {
             users={users}
             onToggleBlockUser={handleToggleBlockUser}
             onToggleUserRole={handleToggleUserRole}
+            onSyncDatabase={syncUsersFromCloud}
           />
         )}
       </main>
