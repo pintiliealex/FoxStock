@@ -120,7 +120,9 @@ export default function App() {
   const syncUsersFromCloud = async () => {
     setDbStatus("syncing");
     try {
-      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_sync_db_v3/users_list?cb=${Date.now()}`);
+      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_sync_db_v3/users_list?cb=${Date.now()}`, {
+        credentials: "omit"
+      });
       if (res.ok) {
         const text = await res.text();
         if (text && text !== '""') {
@@ -200,11 +202,12 @@ export default function App() {
     try {
       const value = JSON.stringify(nextUsers);
       const encoded = toBase64Url(value);
-      // POST with a dummy body to satisfy standard-spec proxies and firewalls
+      // POST as a Simple Request (no preflight) with a dummy body to satisfy standard-spec proxies and firewalls
       await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_cloud_sync_db_v3/users_list/${encoded}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updated: true })
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "updated=true",
+        credentials: "omit"
       });
     } catch (e) {
       console.warn("Failed to push user records to cloud:", e);
