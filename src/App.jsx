@@ -95,6 +95,73 @@ export default function App() {
 
   const [notifications, setNotifications] = useState([]);
 
+  // Cloud Database Sync helpers (uses setget.net CORS-friendly public bin)
+  const syncUsersFromCloud = async () => {
+    try {
+      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      if (res.ok) {
+        const data = await res.json();
+        const cloudUsers = data?.value || [];
+        if (cloudUsers.length > 0) {
+          // Merge to ensure admin account always exists
+          const adminExists = cloudUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
+          let merged = [...cloudUsers];
+          if (!adminExists) {
+            const defaultAdmin = {
+              email: "admin@foxstock.com",
+              password: "admin123",
+              role: "admin",
+              status: "active",
+              verificationCode: "",
+              blocked: false,
+              favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
+              alerts: [],
+              triggeredAlerts: []
+            };
+            merged = [defaultAdmin, ...cloudUsers];
+          }
+          setUsers(merged);
+          localStorage.setItem("foxstock-users", JSON.stringify(merged));
+        }
+      } else if (res.status === 404) {
+        // Seed first time
+        const defaultAdmin = {
+          email: "admin@foxstock.com",
+          password: "admin123",
+          role: "admin",
+          status: "active",
+          verificationCode: "",
+          blocked: false,
+          favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
+          alerts: [],
+          triggeredAlerts: []
+        };
+        await fetch("https://setget.net/set/foxstock_production_users_db_2026", {
+          method: "POST",
+          body: JSON.stringify([defaultAdmin])
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to sync user records from cloud:", e);
+    }
+  };
+
+  const pushUsersToCloud = async (nextUsers) => {
+    try {
+      await fetch("https://setget.net/set/foxstock_production_users_db_2026", {
+        method: "POST",
+        body: JSON.stringify(nextUsers)
+      });
+    } catch (e) {
+      console.warn("Failed to push user records to cloud:", e);
+    }
+  };
+
+  // Sync cloud database on mount
+  useEffect(() => {
+    syncUsersFromCloud();
+  }, []);
+
   // Sync state on user login/switch
   useEffect(() => {
     if (currentUser) {
@@ -189,6 +256,7 @@ export default function App() {
     const nextUsers = [...savedUsers, newUser];
     setUsers(nextUsers);
     localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+    pushUsersToCloud(nextUsers);
     return true;
   };
 
@@ -206,6 +274,7 @@ export default function App() {
     if (verified) {
       setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      pushUsersToCloud(nextUsers);
     }
     return verified;
   };
@@ -224,11 +293,13 @@ export default function App() {
     if (success) {
       setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      pushUsersToCloud(nextUsers);
     }
     return success;
   };
 
   const handleLogin = (email, password) => {
+    // Attempt local login
     const foundUser = users.find(
       (u) => u.email.toLowerCase() === email.toLowerCase()
     );
@@ -290,6 +361,7 @@ export default function App() {
     setUsers((prevUsers) => {
       const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      pushUsersToCloud(nextUsers);
       return nextUsers;
     });
 
@@ -320,6 +392,7 @@ export default function App() {
     setUsers((prevUsers) => {
       const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      pushUsersToCloud(nextUsers);
       return nextUsers;
     });
   };
@@ -333,6 +406,7 @@ export default function App() {
         u.email.toLowerCase() === email.toLowerCase() ? { ...u, blocked: !u.blocked } : u
       );
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      pushUsersToCloud(nextUsers);
       return nextUsers;
     });
 
@@ -352,6 +426,7 @@ export default function App() {
         u.email.toLowerCase() === email.toLowerCase() ? { ...u, role: u.role === "admin" ? "user" : "admin" } : u
       );
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      pushUsersToCloud(nextUsers);
       return nextUsers;
     });
   };
@@ -409,13 +484,13 @@ export default function App() {
                 setUsers((prevUsers) => {
                   const nextUsers = prevUsers.map(u => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
                   localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+                  pushUsersToCloud(nextUsers);
                   return nextUsers;
                 });
               }
               return nextLogs;
             });
 
-            // Transient banner notification
             const newNotification = {
               id: Date.now() + Math.random().toString(36).substr(2, 5),
               type: "danger",
@@ -423,7 +498,7 @@ export default function App() {
             };
             setNotifications((prev) => [newNotification, ...prev]);
 
-            return { ...alert, active: false }; // deactivate limit tracker
+            return { ...alert, active: false };
           }
         }
         return alert;
@@ -445,7 +520,7 @@ export default function App() {
       setAlerts((prevAlerts) => {
         const nextAlerts = prevAlerts.map(alert => {
           if (targetLog && alert.symbol === targetLog.symbol && alert.type === targetLog.type) {
-            return { ...alert, active: false }; // deactivate limit tracker
+            return { ...alert, active: false };
           }
           return alert;
         });
@@ -467,7 +542,7 @@ export default function App() {
         const nextAlerts = prevAlerts.map(alert => {
           const wasTriggered = prevLogs.some(log => !log.read && log.symbol === alert.symbol && log.type === alert.type);
           if (wasTriggered) {
-            return { ...alert, active: false }; // deactivate limit tracker
+            return { ...alert, active: false };
           }
           return alert;
         });
