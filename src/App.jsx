@@ -5,7 +5,8 @@ import Watchlist from "./components/Watchlist";
 import AlertsHub from "./components/AlertsHub";
 import Auth from "./components/Auth";
 import SmartBuy from "./components/SmartBuy";
-import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User } from "lucide-react";
+import AdminPanel from "./components/AdminPanel";
+import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert } from "lucide-react";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -13,32 +14,67 @@ export default function App() {
   const [stocks, setStocks] = useState(INITIAL_STOCKS);
   const [indices, setIndices] = useState(MOCK_INDICES);
   
-  // User Session Management
+  // Seed Database of users (Admin pre-seeded)
+  const [users, setUsers] = useState(() => {
+    const savedUsers = localStorage.getItem("foxstock-users");
+    const parsed = savedUsers ? JSON.parse(savedUsers) : [];
+    
+    // Ensure default admin exists
+    const adminExists = parsed.some(u => u.email.toLowerCase() === "admin@foxstock.com");
+    if (!adminExists) {
+      const defaultAdmin = {
+        email: "admin@foxstock.com",
+        password: "admin123",
+        role: "admin",
+        status: "active",
+        verificationCode: "",
+        blocked: false,
+        favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
+        alerts: []
+      };
+      const newUsers = [defaultAdmin, ...parsed];
+      localStorage.setItem("foxstock-users", JSON.stringify(newUsers));
+      return newUsers;
+    }
+    return parsed;
+  });
+
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem("foxstock-current-user");
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  const [users, setUsers] = useState(() => {
-    const savedUsers = localStorage.getItem("foxstock-users");
-    return savedUsers ? JSON.parse(savedUsers) : [];
-  });
-
   // Load User Preferences dynamically based on current user
-  const [favorites, setFavorites] = useState(() => {
-    return ["AAPL", "MSFT", "TSLA", "NVDA"];
-  });
-
-  const [alerts, setAlerts] = useState(() => {
-    return [
-      { id: "1", symbol: "AAPL", type: "price_below", value: 185.00, active: true },
-      { id: "2", symbol: "NVDA", type: "price_above", value: 890.00, active: true }
-    ];
-  });
-
+  const [favorites, setFavorites] = useState([]);
+  const [alerts, setAlerts] = useState([]);
   const [visibleIndicators, setVisibleIndicators] = useState(() => {
     const saved = localStorage.getItem("foxstock-indicators");
     return saved ? JSON.parse(saved) : AVAILABLE_INDICATORS.map(i => i.id);
+  });
+
+  // Daily Picks Database shared by all accounts
+  const [dailyPicks, setDailyPicks] = useState(() => {
+    const saved = localStorage.getItem("foxstock-daily-picks");
+    if (saved) return JSON.parse(saved);
+    
+    // Initial mock daily picks setup
+    return {
+      prompt: "As a global stock market trading expert analyze the stocks that dropped more than 25-30% in the past month / week and you would buy today for a target of 30% price increase in the next 6 month with a low-medium risk",
+      count: 5,
+      picks: INITIAL_STOCKS.slice(0, 5).map(s => ({
+        symbol: s.symbol,
+        name: s.name,
+        sector: s.sector,
+        price: s.price,
+        change: s.change,
+        changePercent: s.changePercent,
+        peRatio: s.peRatio,
+        suitabilityScore: 92,
+        aiRationale: `${s.name} represents a solid asymmetric opportunity. Solid quantitative indicators combined with defensive valuation metrics present a strong risk-reward ratio fitting the strategy.`,
+        drawdown: 18
+      })),
+      generatedAt: new Date().toLocaleDateString()
+    };
   });
 
   const [notifications, setNotifications] = useState([]);
@@ -46,7 +82,7 @@ export default function App() {
   // Sync user state on login/switch
   useEffect(() => {
     if (currentUser) {
-      setFavorites(currentUser.favorites || ["AAPL", "MSFT", "TSLA"]);
+      setFavorites(currentUser.favorites || []);
       setAlerts(currentUser.alerts || []);
     } else {
       setFavorites([]);
@@ -58,15 +94,18 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       const updatedUser = { ...currentUser, favorites, alerts };
-      setCurrentUser(updatedUser);
-      localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+      // Prevent infinite effect loops by only committing if changed
+      if (JSON.stringify(currentUser.favorites) !== JSON.stringify(favorites) || 
+          JSON.stringify(currentUser.alerts) !== JSON.stringify(alerts)) {
+        setCurrentUser(updatedUser);
+        localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
 
-      // Update in main database
-      setUsers((prevUsers) => {
-        const nextUsers = prevUsers.map((u) => u.email === currentUser.email ? updatedUser : u);
-        localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-        return nextUsers;
-      });
+        setUsers((prevUsers) => {
+          const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+          localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+          return nextUsers;
+        });
+      }
     }
   }, [favorites, alerts]);
 
@@ -85,14 +124,18 @@ export default function App() {
     localStorage.setItem("foxstock-indicators", JSON.stringify(visibleIndicators));
   }, [visibleIndicators]);
 
-  // Auth Functions
-  const handleRegister = (email, password) => {
+  // User Actions Auth
+  const handleRegister = (email, password, verificationCode) => {
     const exists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
     if (exists) return false;
 
     const newUser = {
       email,
       password,
+      role: "user",
+      status: "pending",
+      verificationCode,
+      blocked: false,
       favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
       alerts: []
     };
@@ -100,22 +143,63 @@ export default function App() {
     const nextUsers = [...users, newUser];
     setUsers(nextUsers);
     localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-
-    // Auto Login
-    setCurrentUser(newUser);
-    localStorage.setItem("foxstock-current-user", JSON.stringify(newUser));
     return true;
+  };
+
+  const handleVerifyCode = (email, code) => {
+    let verified = false;
+    const nextUsers = users.map((u) => {
+      if (u.email.toLowerCase() === email.toLowerCase() && u.verificationCode === code) {
+        verified = true;
+        return { ...u, status: "active", verificationCode: "" };
+      }
+      return u;
+    });
+
+    if (verified) {
+      setUsers(nextUsers);
+      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+    }
+    return verified;
+  };
+
+  const handleForgotPassword = (email, tempPass) => {
+    let success = false;
+    const nextUsers = users.map((u) => {
+      if (u.email.toLowerCase() === email.toLowerCase()) {
+        success = true;
+        return { ...u, password: tempPass };
+      }
+      return u;
+    });
+
+    if (success) {
+      setUsers(nextUsers);
+      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+    }
+    return success;
   };
 
   const handleLogin = (email, password) => {
     const foundUser = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+      (u) => u.email.toLowerCase() === email.toLowerCase()
     );
-    if (!foundUser) return false;
+
+    if (!foundUser || foundUser.password !== password) {
+      return { error: "Invalid email or password." };
+    }
+
+    if (foundUser.blocked) {
+      return { error: "Your account has been blocked by an administrator." };
+    }
+
+    if (foundUser.status === "pending") {
+      return { error: "Please verify your email address to activate your account." };
+    }
 
     setCurrentUser(foundUser);
     localStorage.setItem("foxstock-current-user", JSON.stringify(foundUser));
-    return true;
+    return { success: true };
   };
 
   const handleLogout = () => {
@@ -124,13 +208,58 @@ export default function App() {
     setActiveTab("dashboard");
   };
 
+  // Admin Actions
+  const handleToggleBlockUser = (email) => {
+    if (email.toLowerCase() === "admin@foxstock.com") return; // Keep main admin safe
+    
+    setUsers((prevUsers) => {
+      const nextUsers = prevUsers.map((u) => 
+        u.email.toLowerCase() === email.toLowerCase() ? { ...u, blocked: !u.blocked } : u
+      );
+      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      return nextUsers;
+    });
+
+    // If blocked user is currently logged in, force log them out
+    const updatedUsersList = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    const checkBlocked = updatedUsersList.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (checkBlocked && checkBlocked.blocked && currentUser?.email.toLowerCase() === email.toLowerCase()) {
+      handleLogout();
+    }
+  };
+
+  const handleToggleUserRole = (email) => {
+    if (email.toLowerCase() === "admin@foxstock.com") return;
+    
+    setUsers((prevUsers) => {
+      const nextUsers = prevUsers.map((u) => 
+        u.email.toLowerCase() === email.toLowerCase() ? { ...u, role: u.role === "admin" ? "user" : "admin" } : u
+      );
+      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      return nextUsers;
+    });
+  };
+
+  // Smart Buy picks saver
+  const handleSaveDailyPicks = (picksData) => {
+    setDailyPicks(picksData);
+    localStorage.setItem("foxstock-daily-picks", JSON.stringify(picksData));
+
+    const newNotif = {
+      id: Date.now().toString(),
+      type: "success",
+      text: "Daily Picks recommendation database successfully updated."
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+  };
+
   // Real-time market simulation loop
   useEffect(() => {
     const interval = setInterval(() => {
       // Simulate stock price updates
       setStocks((prevStocks) => {
         return prevStocks.map((stock) => {
-          const volatility = 0.003;
+          const volatility = 0.002;
           const direction = Math.random() > 0.48 ? 1 : -1;
           const changePercent = Math.random() * volatility * direction;
           const priceDiff = stock.price * changePercent;
@@ -199,7 +328,7 @@ export default function App() {
         });
       });
 
-    }, 4000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [alerts]);
@@ -268,9 +397,60 @@ export default function App() {
   // Run live fetches on mount and setup recurring refresh
   useEffect(() => {
     fetchLivePrices();
-    const liveInterval = setInterval(fetchLivePrices, 25000);
+    const liveInterval = setInterval(fetchLivePrices, 30000);
     return () => clearInterval(liveInterval);
   }, []);
+
+  // Fetch custom stock range on demand
+  const handleChangeStockRange = async (symbol, range) => {
+    // Map selected range parameters to query interval
+    let interval = "1d";
+    if (range === "1d") interval = "2m";
+    else if (range === "5d") interval = "15m";
+    else if (range === "1y" || range === "2y") interval = "1wk";
+    else if (range === "5y" || range === "10y") interval = "1mo";
+
+    const urls = [
+      `/api-yahoo/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`,
+      `https://corsproxy.io/?url=https://query1.finance.yahoo.com/v8/finance/chart/${symbol}%3Frange%3D${range}%26interval%3D${interval}`,
+      `https://api.allorigins.win/raw?url=https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`
+    ];
+
+    let success = false;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const result = data?.chart?.result?.[0];
+        if (result) {
+          const rawQuote = result.indicators?.quote?.[0]?.close || [];
+          const cleanHistory = rawQuote.filter(v => v !== null && v !== undefined).slice(-45); // take trailing slice points
+
+          setStocks((prevStocks) =>
+            prevStocks.map((stock) => {
+              if (stock.symbol === symbol) {
+                return {
+                  ...stock,
+                  activeRange: range,
+                  history: cleanHistory.map(h => parseFloat(h.toFixed(2)))
+                };
+              }
+              return stock;
+            })
+          );
+          success = true;
+          break;
+        }
+      } catch (e) {
+        // silently try next fallback url
+      }
+    }
+
+    if (!success) {
+      console.warn(`Failed to fetch dynamic history range ${range} for stock ${symbol}`);
+    }
+  };
 
   // Alert State Handlers
   const handleAddAlert = (newAlert) => {
@@ -325,6 +505,26 @@ export default function App() {
     setNotifications((prev) => [newNotif, ...prev]);
   };
 
+  const handleToggleFavorite = (symbol) => {
+    setFavorites((prev) =>
+      prev.includes(symbol)
+        ? prev.filter((s) => s !== symbol)
+        : [...prev, symbol]
+    );
+  };
+
+  const handleToggleIndicator = (indicatorId) => {
+    setVisibleIndicators((prev) =>
+      prev.includes(indicatorId)
+        ? prev.filter((i) => i !== indicatorId)
+        : [...prev, indicatorId]
+    );
+  };
+
+  const handleDismissNotification = (id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
+
   const handleAddCustomStock = (symbol, name) => {
     const sym = symbol.toUpperCase();
     const exists = stocks.some(s => s.symbol === sym);
@@ -361,30 +561,19 @@ export default function App() {
     }
   };
 
-  const handleToggleFavorite = (symbol) => {
-    setFavorites((prev) =>
-      prev.includes(symbol)
-        ? prev.filter((s) => s !== symbol)
-        : [...prev, symbol]
-    );
-  };
-
-  const handleToggleIndicator = (indicatorId) => {
-    setVisibleIndicators((prev) =>
-      prev.includes(indicatorId)
-        ? prev.filter((i) => i !== indicatorId)
-        : [...prev, indicatorId]
-    );
-  };
-
-  const handleDismissNotification = (id) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  };
-
   // Render Auth screen if not logged in
   if (!currentUser) {
-    return <Auth onLogin={handleLogin} onRegister={handleRegister} />;
+    return (
+      <Auth 
+        onLogin={handleLogin} 
+        onRegister={handleRegister} 
+        onVerifyCode={handleVerifyCode} 
+        onForgotPassword={handleForgotPassword}
+      />
+    );
   }
+
+  const isAdmin = currentUser.role === "admin";
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -465,6 +654,17 @@ export default function App() {
           >
             <Bell size={14} /> Alerts & AI
           </button>
+          
+          {/* Admin panel tab */}
+          {isAdmin && (
+            <button 
+              className={activeTab === "admin" ? "btn-primary" : "btn-secondary"} 
+              onClick={() => setActiveTab("admin")}
+              style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem", border: "1px solid rgba(139, 92, 246, 0.4)" }}
+            >
+              <ShieldAlert size={14} color="var(--color-primary)" /> Admin Panel
+            </button>
+          )}
         </nav>
 
         {/* User profile controls & theme */}
@@ -548,6 +748,7 @@ export default function App() {
             visibleIndicators={visibleIndicators}
             onToggleIndicator={handleToggleIndicator}
             onAddCustomStock={handleAddCustomStock}
+            onChangeStockRange={handleChangeStockRange}
           />
         )}
 
@@ -556,6 +757,9 @@ export default function App() {
             stocks={stocks}
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
+            currentUser={currentUser}
+            dailyPicks={dailyPicks}
+            onSaveDailyPicks={handleSaveDailyPicks}
           />
         )}
 
@@ -567,6 +771,14 @@ export default function App() {
             onRemoveAlert={handleRemoveAlert}
             onToggleAlertStatus={handleToggleAlertStatus}
             onTriggerAIRatingUpdate={handleTriggerAIRatingUpdate}
+          />
+        )}
+
+        {activeTab === "admin" && isAdmin && (
+          <AdminPanel 
+            users={users}
+            onToggleBlockUser={handleToggleBlockUser}
+            onToggleUserRole={handleToggleUserRole}
           />
         )}
       </main>

@@ -9,7 +9,8 @@ export default function Watchlist({
   onToggleFavorite,
   visibleIndicators,
   onToggleIndicator,
-  onAddCustomStock
+  onAddCustomStock,
+  onChangeStockRange
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showConfig, setShowConfig] = useState(false);
@@ -270,8 +271,31 @@ export default function Watchlist({
                   )}
 
                   {visibleIndicators.includes("sparkline") && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", textAlign: "left" }}>30-Day price evolution</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", textAlign: "left" }}>Price evolution</span>
+                        <select 
+                          value={stock.activeRange || "1mo"} 
+                          onChange={(e) => onChangeStockRange(stock.symbol, e.target.value)}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            border: "1px solid var(--border-glass)",
+                            backgroundColor: "var(--bg-secondary)",
+                            color: "var(--text-primary)",
+                            fontSize: "0.75rem",
+                            outline: "none"
+                          }}
+                        >
+                          <option value="1d">1D</option>
+                          <option value="5d">1W</option>
+                          <option value="1mo">1M</option>
+                          <option value="1y">1Y</option>
+                          <option value="2y">2Y</option>
+                          <option value="5y">5Y</option>
+                          <option value="10y">10Y</option>
+                        </select>
+                      </div>
                       <div style={{ padding: "6px 0" }}>
                         <Sparkline data={stock.history} isPositive={isPos} />
                       </div>
