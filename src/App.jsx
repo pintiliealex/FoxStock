@@ -153,7 +153,8 @@ export default function App() {
 
   // Auth Functions
   const handleRegister = (email, password, verificationCode) => {
-    const exists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
+    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    const exists = savedUsers.some((u) => u.email.toLowerCase() === email.toLowerCase());
     if (exists) return false;
 
     const newUser = {
@@ -167,7 +168,7 @@ export default function App() {
       alerts: []
     };
 
-    const nextUsers = [...users, newUser];
+    const nextUsers = [...savedUsers, newUser];
     setUsers(nextUsers);
     localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
     return true;
@@ -175,7 +176,8 @@ export default function App() {
 
   const handleVerifyCode = (email, code) => {
     let verified = false;
-    const nextUsers = users.map((u) => {
+    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    const nextUsers = savedUsers.map((u) => {
       if (u.email.toLowerCase() === email.toLowerCase() && u.verificationCode === code) {
         verified = true;
         return { ...u, status: "active", verificationCode: "" };
@@ -192,7 +194,8 @@ export default function App() {
 
   const handleForgotPassword = (email, tempPass) => {
     let success = false;
-    const nextUsers = users.map((u) => {
+    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    const nextUsers = savedUsers.map((u) => {
       if (u.email.toLowerCase() === email.toLowerCase()) {
         success = true;
         return { ...u, password: tempPass };
