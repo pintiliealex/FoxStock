@@ -95,10 +95,10 @@ export default function App() {
 
   const [notifications, setNotifications] = useState([]);
 
-  // Cloud Database Sync helpers (uses setget.net CORS-friendly public bin)
+  // Cloud Database Sync helpers (uses setget.net CORS-friendly public bin with cache-buster)
   const syncUsersFromCloud = async () => {
     try {
-      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         const cloudUsers = data?.value || [];
@@ -272,7 +272,7 @@ export default function App() {
   const handleRegister = async (email, password, verificationCode) => {
     let latestUsers = [];
     try {
-      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         latestUsers = data?.value || [];
@@ -306,7 +306,7 @@ export default function App() {
   const handleVerifyCode = async (email, code) => {
     let latestUsers = [];
     try {
-      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         latestUsers = data?.value || [];
@@ -335,7 +335,7 @@ export default function App() {
   const handleForgotPassword = async (email, tempPass) => {
     let latestUsers = [];
     try {
-      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         latestUsers = data?.value || [];
@@ -364,7 +364,7 @@ export default function App() {
   const handleLogin = async (email, password) => {
     let latestUsers = users;
     try {
-      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         latestUsers = data?.value || [];
@@ -404,7 +404,7 @@ export default function App() {
   };
 
   // Change Password
-  const handleChangePassword = (e) => {
+  const handleChangePassword = async (e) => {
     e.preventDefault();
     setPassModalError("");
     setPassModalSuccess("");
@@ -429,26 +429,35 @@ export default function App() {
       return;
     }
 
-    const updatedUser = { ...currentUser, password: newPassInput };
-    setCurrentUser(updatedUser);
-    localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+    try {
+      let latestUsers = [];
+      const getRes = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
+      if (getRes.ok) {
+        const data = await getRes.json();
+        latestUsers = data?.value || [];
+      }
 
-    setUsers((prevUsers) => {
-      const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+      const updatedUser = { ...currentUser, password: newPassInput };
+      setCurrentUser(updatedUser);
+      localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+
+      const nextUsers = latestUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+      setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      pushUsersToCloud(nextUsers);
-      return nextUsers;
-    });
+      await pushUsersToCloud(nextUsers);
 
-    setPassModalSuccess("Password changed successfully!");
-    setOldPassInput("");
-    setNewPassInput("");
-    setConfirmNewPassInput("");
+      setPassModalSuccess("Password changed successfully!");
+      setOldPassInput("");
+      setNewPassInput("");
+      setConfirmNewPassInput("");
 
-    setTimeout(() => {
-      setShowPasswordModal(false);
-      setPassModalSuccess("");
-    }, 1500);
+      setTimeout(() => {
+        setShowPasswordModal(false);
+        setPassModalSuccess("");
+      }, 1500);
+    } catch (err) {
+      setPassModalError("Failed to update password in cloud database.");
+    }
   };
 
   // Helper database synchronizer (avoids infinite loops)
@@ -473,37 +482,56 @@ export default function App() {
   };
 
   // Admin Actions
-  const handleToggleBlockUser = (email) => {
+  const handleToggleBlockUser = async (email) => {
     if (email.toLowerCase() === "admin@foxstock.com") return;
     
-    setUsers((prevUsers) => {
-      const nextUsers = prevUsers.map((u) => 
+    try {
+      let latestUsers = [];
+      const getRes = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
+      if (getRes.ok) {
+        const data = await getRes.json();
+        latestUsers = data?.value || [];
+      }
+
+      const nextUsers = latestUsers.map((u) => 
         u.email.toLowerCase() === email.toLowerCase() ? { ...u, blocked: !u.blocked } : u
       );
+      
+      setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      pushUsersToCloud(nextUsers);
-      return nextUsers;
-    });
+      await pushUsersToCloud(nextUsers);
 
-    // Force logout if blocked
-    const updatedUsersList = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    const checkBlocked = updatedUsersList.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (checkBlocked && checkBlocked.blocked && currentUser?.email.toLowerCase() === email.toLowerCase()) {
-      handleLogout();
+      // Force logout if blocked
+      const checkBlocked = nextUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (checkBlocked && checkBlocked.blocked && currentUser?.email.toLowerCase() === email.toLowerCase()) {
+        handleLogout();
+      }
+    } catch (e) {
+      console.error("Toggle block sync error:", e);
     }
   };
 
-  const handleToggleUserRole = (email) => {
+  const handleToggleUserRole = async (email) => {
     if (email.toLowerCase() === "admin@foxstock.com") return;
     
-    setUsers((prevUsers) => {
-      const nextUsers = prevUsers.map((u) => 
+    try {
+      let latestUsers = [];
+      const getRes = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
+      if (getRes.ok) {
+        const data = await getRes.json();
+        latestUsers = data?.value || [];
+      }
+
+      const nextUsers = latestUsers.map((u) => 
         u.email.toLowerCase() === email.toLowerCase() ? { ...u, role: u.role === "admin" ? "user" : "admin" } : u
       );
+
+      setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      pushUsersToCloud(nextUsers);
-      return nextUsers;
-    });
+      await pushUsersToCloud(nextUsers);
+    } catch (e) {
+      console.error("Toggle role sync error:", e);
+    }
   };
 
   // Smart Buy picks saver
@@ -519,7 +547,7 @@ export default function App() {
     setNotifications((prev) => [newNotif, ...prev]);
   };
 
-  // Shared Alert checking & trigger logging
+  // Shared Alert checking & trigger logging (Fixed race conditions & state deletes)
   const checkAndTriggerAlerts = (symbol, currentPrice, peRatio) => {
     setAlerts((prevAlerts) => {
       let triggeredAny = false;
@@ -536,43 +564,6 @@ export default function App() {
 
           if (triggered) {
             triggeredAny = true;
-            
-            const newLog = {
-              id: Date.now() + Math.random().toString(36).substr(2, 5),
-              symbol,
-              type: alert.type,
-              limitValue: alert.value,
-              triggerValue: currentPrice,
-              triggeredAt: new Date().toLocaleTimeString(),
-              read: false
-            };
-
-            setTriggeredAlertLogs((prevLogs) => {
-              const nextLogs = [newLog, ...prevLogs];
-              if (currentUser) {
-                const updatedUser = { 
-                  ...currentUser, 
-                  alerts: prevAlerts.map(a => a.id === alert.id ? { ...a, active: false } : a),
-                  triggeredAlerts: nextLogs
-                };
-                localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
-                setUsers((prevUsers) => {
-                  const nextUsers = prevUsers.map(u => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
-                  localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-                  pushUsersToCloud(nextUsers);
-                  return nextUsers;
-                });
-              }
-              return nextLogs;
-            });
-
-            const newNotification = {
-              id: Date.now() + Math.random().toString(36).substr(2, 5),
-              type: "danger",
-              text: `ALERT: ${symbol} price parameter met! Triggered value is $${currentPrice.toFixed(2)}.`
-            };
-            setNotifications((prev) => [newNotification, ...prev]);
-
             return { ...alert, active: false };
           }
         }
@@ -580,8 +571,59 @@ export default function App() {
       });
 
       if (triggeredAny) {
-        syncPreferencesToDb(favorites, nextAlerts, null);
+        // Collect new triggered logs
+        const triggeredAlerts = prevAlerts.filter(a => a.active).map(a => {
+          const nextA = nextAlerts.find(na => na.id === a.id);
+          if (a.active && nextA && !nextA.active) {
+            return {
+              id: Date.now() + Math.random().toString(36).substr(2, 5),
+              symbol: a.symbol,
+              type: a.type,
+              limitValue: a.value,
+              triggerValue: currentPrice,
+              triggeredAt: new Date().toLocaleTimeString(),
+              read: false
+            };
+          }
+          return null;
+        }).filter(Boolean);
+
+        if (triggeredAlerts.length > 0) {
+          setTriggeredAlertLogs((prevLogs) => {
+            const nextLogs = [...triggeredAlerts, ...prevLogs];
+            
+            // Sync preferences to DB atomically
+            if (currentUser) {
+              const updatedUser = { 
+                ...currentUser, 
+                favorites,
+                alerts: nextAlerts,
+                triggeredAlerts: nextLogs
+              };
+              setCurrentUser(updatedUser);
+              localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+              setUsers((prevUsers) => {
+                const nextUsers = prevUsers.map(u => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+                localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+                pushUsersToCloud(nextUsers);
+                return nextUsers;
+              });
+            }
+            return nextLogs;
+          });
+
+          // Show transient red notifications
+          triggeredAlerts.forEach(log => {
+            const newNotification = {
+              id: log.id,
+              type: "danger",
+              text: `ALERT: ${log.symbol} price parameter met! Triggered value is $${log.triggerValue.toFixed(2)}.`
+            };
+            setNotifications((prev) => [newNotification, ...prev]);
+          });
+        }
       }
+
       return nextAlerts;
     });
   };
@@ -759,11 +801,13 @@ export default function App() {
             const result = data?.chart?.result?.[0];
             if (result) {
               const currentPrice = result.meta.regularMarketPrice;
-              const prevClose = result.meta.chartPreviousClose || currentPrice;
-              const change = currentPrice - prevClose;
-              const changePercent = (change / prevClose) * 100;
               const rawQuote = result.indicators?.quote?.[0]?.close || [];
               const cleanHistory = rawQuote.filter(v => v !== null && v !== undefined);
+              
+              // Anchor daily previous close to correctly compute daily change and % instead of 1-year changes
+              const prevClose = result.meta.previousClose || (cleanHistory.length > 1 ? cleanHistory[cleanHistory.length - 2] : currentPrice);
+              const change = currentPrice - prevClose;
+              const changePercent = (change / prevClose) * 100;
 
               const low52 = cleanHistory.length > 0 ? Math.min(...cleanHistory) : currentPrice * 0.82;
               const high52 = cleanHistory.length > 0 ? Math.max(...cleanHistory) : currentPrice * 1.18;
@@ -773,6 +817,7 @@ export default function App() {
                 price: parseFloat(currentPrice.toFixed(2)),
                 change: parseFloat(change.toFixed(2)),
                 changePercent: parseFloat(changePercent.toFixed(2)),
+                prevClose: parseFloat(prevClose.toFixed(2)),
                 low52: parseFloat(low52.toFixed(2)),
                 high52: parseFloat(high52.toFixed(2)),
                 fullHistory: cleanHistory.map(h => parseFloat(h.toFixed(2)))
@@ -793,15 +838,25 @@ export default function App() {
             const activeRange = stock.activeRange || "1mo";
             let sliceHistory = stock.history;
 
-            if (liveData.fullHistory && liveData.fullHistory.length > 0) {
-              if (activeRange === "1mo") {
-                sliceHistory = liveData.fullHistory.slice(-30);
-              } else if (activeRange === "5d") {
-                sliceHistory = liveData.fullHistory.slice(-5);
-              } else if (activeRange === "6mo") {
-                sliceHistory = liveData.fullHistory.slice(-126);
-              } else if (activeRange === "1y") {
-                sliceHistory = liveData.fullHistory.slice(-252);
+            // Only overwrite history if the range fits the daily 1-year chart feed
+            if (["5d", "1mo", "6mo", "1y"].includes(activeRange)) {
+              if (liveData.fullHistory && liveData.fullHistory.length > 0) {
+                if (activeRange === "1mo") {
+                  sliceHistory = liveData.fullHistory.slice(-30);
+                } else if (activeRange === "5d") {
+                  sliceHistory = liveData.fullHistory.slice(-5);
+                } else if (activeRange === "6mo") {
+                  sliceHistory = liveData.fullHistory.slice(-126);
+                } else if (activeRange === "1y") {
+                  sliceHistory = liveData.fullHistory.slice(-252);
+                }
+              }
+            } else {
+              // For 1D, 2Y, 5Y, 10Y ranges: keep existing history, just update the very last price tick in-place!
+              if (sliceHistory && sliceHistory.length > 0) {
+                const nextHist = [...sliceHistory];
+                nextHist[nextHist.length - 1] = liveData.price;
+                sliceHistory = nextHist;
               }
             }
 
@@ -817,6 +872,7 @@ export default function App() {
               price: liveData.price,
               change: liveData.change,
               changePercent: liveData.changePercent,
+              prevClose: liveData.prevClose,
               low52: liveData.low52,
               high52: liveData.high52,
               ath: parseFloat(updatedAth.toFixed(2)),
