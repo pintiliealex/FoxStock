@@ -157,9 +157,11 @@ export default function App() {
     }
   };
 
-  // Sync cloud database on mount
+  // Sync cloud database on mount and every 10 seconds to pull registrations from mobile/other devices
   useEffect(() => {
     syncUsersFromCloud();
+    const syncInterval = setInterval(syncUsersFromCloud, 10000);
+    return () => clearInterval(syncInterval);
   }, []);
 
   // Sync state on user login/switch
@@ -236,9 +238,19 @@ export default function App() {
   }, [visibleIndicators]);
 
   // Auth Functions
-  const handleRegister = (email, password, verificationCode) => {
-    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    const exists = savedUsers.some((u) => u.email.toLowerCase() === email.toLowerCase());
+  const handleRegister = async (email, password, verificationCode) => {
+    let latestUsers = [];
+    try {
+      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      if (res.ok) {
+        const data = await res.json();
+        latestUsers = data?.value || [];
+      }
+    } catch (e) {
+      latestUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    }
+
+    const exists = latestUsers.some((u) => u.email.toLowerCase() === email.toLowerCase());
     if (exists) return false;
 
     const newUser = {
@@ -253,17 +265,27 @@ export default function App() {
       triggeredAlerts: []
     };
 
-    const nextUsers = [...savedUsers, newUser];
+    const nextUsers = [...latestUsers, newUser];
     setUsers(nextUsers);
     localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-    pushUsersToCloud(nextUsers);
+    await pushUsersToCloud(nextUsers);
     return true;
   };
 
-  const handleVerifyCode = (email, code) => {
+  const handleVerifyCode = async (email, code) => {
+    let latestUsers = [];
+    try {
+      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      if (res.ok) {
+        const data = await res.json();
+        latestUsers = data?.value || [];
+      }
+    } catch (e) {
+      latestUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    }
+
     let verified = false;
-    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    const nextUsers = savedUsers.map((u) => {
+    const nextUsers = latestUsers.map((u) => {
       if (u.email.toLowerCase() === email.toLowerCase() && u.verificationCode === code) {
         verified = true;
         return { ...u, status: "active", verificationCode: "" };
@@ -274,15 +296,25 @@ export default function App() {
     if (verified) {
       setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      pushUsersToCloud(nextUsers);
+      await pushUsersToCloud(nextUsers);
     }
     return verified;
   };
 
-  const handleForgotPassword = (email, tempPass) => {
+  const handleForgotPassword = async (email, tempPass) => {
+    let latestUsers = [];
+    try {
+      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      if (res.ok) {
+        const data = await res.json();
+        latestUsers = data?.value || [];
+      }
+    } catch (e) {
+      latestUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    }
+
     let success = false;
-    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    const nextUsers = savedUsers.map((u) => {
+    const nextUsers = latestUsers.map((u) => {
       if (u.email.toLowerCase() === email.toLowerCase()) {
         success = true;
         return { ...u, password: tempPass };
@@ -293,14 +325,26 @@ export default function App() {
     if (success) {
       setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      pushUsersToCloud(nextUsers);
+      await pushUsersToCloud(nextUsers);
     }
     return success;
   };
 
-  const handleLogin = (email, password) => {
-    // Attempt local login
-    const foundUser = users.find(
+  const handleLogin = async (email, password) => {
+    let latestUsers = users;
+    try {
+      const res = await fetch("https://setget.net/get/foxstock_production_users_db_2026");
+      if (res.ok) {
+        const data = await res.json();
+        latestUsers = data?.value || [];
+        setUsers(latestUsers);
+        localStorage.setItem("foxstock-users", JSON.stringify(latestUsers));
+      }
+    } catch (e) {
+      // Fallback to local state if server offline
+    }
+
+    const foundUser = latestUsers.find(
       (u) => u.email.toLowerCase() === email.toLowerCase()
     );
 

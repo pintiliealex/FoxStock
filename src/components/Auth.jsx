@@ -12,7 +12,7 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
   const [mockMailNotice, setMockMailNotice] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setMockMailNotice("");
@@ -45,7 +45,7 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
       // Generate a mock code
       const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
       
-      const success = onRegister(email, password, generatedCode);
+      const success = await onRegister(email, password, generatedCode);
       if (!success) {
         setError("An account with this email already exists.");
       } else {
@@ -60,7 +60,7 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
         setError("Please enter the activation code.");
         return;
       }
-      const success = onVerifyCode(pendingEmail, verificationInput);
+      const success = await onVerifyCode(pendingEmail, verificationInput);
       if (success) {
         setAuthMode("login");
         setEmail(pendingEmail);
@@ -80,7 +80,7 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
 
       // Generate temporary password
       const tempPass = Math.random().toString(36).substring(2, 10);
-      const success = onForgotPassword(email, tempPass);
+      const success = await onForgotPassword(email, tempPass);
 
       if (success) {
         setMockMailNotice(`MOCK EMAIL SENT to ${email}: Your new temporary password is [ ${tempPass} ]`);
