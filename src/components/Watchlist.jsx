@@ -74,7 +74,7 @@ export default function Watchlist({
   // Helper to render 52-week range bar
   const renderRange52 = (stock) => {
     const range = stock.high52 - stock.low52;
-    const position = ((stock.price - stock.low52) / range) * 100;
+    const position = range === 0 ? 50 : ((stock.price - stock.low52) / range) * 100;
     const safePos = Math.max(0, Math.min(100, position));
 
     return (
@@ -106,15 +106,18 @@ export default function Watchlist({
     const maxRev = Math.max(...stock.quarterlyRevenue.map((r) => r.revenue));
 
     return (
-      <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", height: "40px", marginTop: "8px" }}>
+      <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", height: "55px", marginTop: "8px" }}>
         {stock.quarterlyRevenue.map((rev) => {
           const heightPercent = (rev.revenue / maxRev) * 100;
           return (
             <div key={rev.quarter} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <span style={{ fontSize: "0.65rem", color: "var(--text-primary)", fontWeight: "600", marginBottom: "2px" }}>
+                ${rev.revenue.toFixed(1)}B
+              </span>
               <div 
                 style={{ 
                   width: "100%", 
-                  height: `${heightPercent * 0.3}px`, 
+                  height: `${Math.max(4, heightPercent * 0.25)}px`, 
                   background: "linear-gradient(to top, var(--color-primary), var(--color-secondary))",
                   borderRadius: "2px",
                   position: "relative"
@@ -303,6 +306,7 @@ export default function Watchlist({
                           <option value="1d">1D</option>
                           <option value="5d">1W</option>
                           <option value="1mo">1M</option>
+                          <option value="6mo">6M</option>
                           <option value="1y">1Y</option>
                           <option value="2y">2Y</option>
                           <option value="5y">5Y</option>

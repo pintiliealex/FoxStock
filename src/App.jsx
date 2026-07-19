@@ -318,11 +318,27 @@ export default function App() {
           const newChange = stock.change + priceDiff;
           const newChangePercent = (newChange / (newPrice - newChange)) * 100;
           
-          const newHistory = [...stock.history.slice(1), parseFloat(newPrice.toFixed(2))];
+          const activeRange = stock.activeRange || "1mo";
+          const newHistory = [...stock.history];
+          if (activeRange === "1d") {
+            newHistory.shift();
+            newHistory.push(parseFloat(newPrice.toFixed(2)));
+          } else {
+            if (newHistory.length > 0) {
+              newHistory[newHistory.length - 1] = parseFloat(newPrice.toFixed(2));
+            }
+          }
 
           // 52 Week boundaries safety check
-          const updatedLow52 = Math.min(stock.low52, newPrice);
-          const updatedHigh52 = Math.max(stock.high52, newPrice);
+          let updatedLow52 = typeof stock.low52 === "number" ? stock.low52 : newPrice;
+          let updatedHigh52 = typeof stock.high52 === "number" ? stock.high52 : newPrice;
+          if (newPrice < updatedLow52 || newPrice > updatedHigh52) {
+            updatedLow52 = newPrice * 0.85;
+            updatedHigh52 = newPrice * 1.15;
+          } else {
+            updatedLow52 = Math.min(updatedLow52, newPrice);
+            updatedHigh52 = Math.max(updatedHigh52, newPrice);
+          }
 
           // Check if any active alerts are triggered for this stock
           alerts.forEach((alert) => {
@@ -439,8 +455,16 @@ export default function App() {
         prevStocks.map((stock) => {
           const liveData = updatedResults.find(r => r && r.symbol === stock.symbol);
           if (liveData) {
-            const updatedLow52 = Math.min(stock.low52, liveData.price);
-            const updatedHigh52 = Math.max(stock.high52, liveData.price);
+            let updatedLow52 = typeof stock.low52 === "number" ? stock.low52 : liveData.price;
+            let updatedHigh52 = typeof stock.high52 === "number" ? stock.high52 : liveData.price;
+
+            if (liveData.price < updatedLow52 || liveData.price > updatedHigh52) {
+              updatedLow52 = liveData.price * 0.85;
+              updatedHigh52 = liveData.price * 1.15;
+            } else {
+              updatedLow52 = Math.min(updatedLow52, liveData.price);
+              updatedHigh52 = Math.max(updatedHigh52, liveData.price);
+            }
 
             return {
               ...stock,
@@ -472,6 +496,7 @@ export default function App() {
     let interval = "1d";
     if (range === "1d") interval = "2m";
     else if (range === "5d") interval = "15m";
+    else if (range === "6mo") interval = "1d";
     else if (range === "1y" || range === "2y") interval = "1wk";
     else if (range === "5y" || range === "10y") interval = "1mo";
 
