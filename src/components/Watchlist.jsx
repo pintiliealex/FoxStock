@@ -19,6 +19,19 @@ export default function Watchlist({
 
   const favoritedStocks = stocks.filter((s) => favorites.includes(s.symbol));
 
+  const getRangePerformance = (history) => {
+    if (!history || history.length < 2) return null;
+    const start = history[0];
+    const end = history[history.length - 1];
+    const diff = end - start;
+    const pct = (diff / start) * 100;
+    return {
+      diff,
+      pct,
+      isPositive: diff >= 0
+    };
+  };
+
   useEffect(() => {
     if (searchQuery.trim().length < 2) {
       setSearchResults([]);
@@ -296,6 +309,23 @@ export default function Watchlist({
                           <option value="10y">10Y</option>
                         </select>
                       </div>
+                      {(() => {
+                        const perf = getRangePerformance(stock.history);
+                        if (!perf) return null;
+                        const isPos = perf.isPositive;
+                        return (
+                          <div style={{ 
+                            fontSize: "0.75rem", 
+                            color: isPos ? "var(--color-success)" : "var(--color-danger)",
+                            fontWeight: "700",
+                            textAlign: "left",
+                            marginTop: "-4px",
+                            marginBottom: "4px"
+                          }}>
+                            Period Return: {isPos ? "+" : ""}{perf.pct.toFixed(2)}% ({isPos ? "+" : ""}${perf.diff.toFixed(2)})
+                          </div>
+                        );
+                      })()}
                       <div style={{ padding: "6px 0" }}>
                         <Sparkline data={stock.history} isPositive={isPos} />
                       </div>

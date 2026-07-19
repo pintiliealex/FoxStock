@@ -6,7 +6,7 @@ import AlertsHub from "./components/AlertsHub";
 import Auth from "./components/Auth";
 import SmartBuy from "./components/SmartBuy";
 import AdminPanel from "./components/AdminPanel";
-import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert } from "lucide-react";
+import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock } from "lucide-react";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -18,8 +18,6 @@ export default function App() {
   const [users, setUsers] = useState(() => {
     const savedUsers = localStorage.getItem("foxstock-users");
     const parsed = savedUsers ? JSON.parse(savedUsers) : [];
-    
-    // Ensure default admin exists
     const adminExists = parsed.some(u => u.email.toLowerCase() === "admin@foxstock.com");
     if (!adminExists) {
       const defaultAdmin = {
@@ -44,7 +42,7 @@ export default function App() {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  // Load User Preferences dynamically based on current user
+  // User Preferences
   const [favorites, setFavorites] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [visibleIndicators, setVisibleIndicators] = useState(() => {
@@ -52,12 +50,18 @@ export default function App() {
     return saved ? JSON.parse(saved) : AVAILABLE_INDICATORS.map(i => i.id);
   });
 
+  // Change Password Modal States
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [oldPassInput, setOldPassInput] = useState("");
+  const [newPassInput, setNewPassInput] = useState("");
+  const [confirmNewPassInput, setConfirmNewPassInput] = useState("");
+  const [passModalError, setPassModalError] = useState("");
+  const [passModalSuccess, setPassModalSuccess] = useState("");
+
   // Daily Picks Database shared by all accounts
   const [dailyPicks, setDailyPicks] = useState(() => {
     const saved = localStorage.getItem("foxstock-daily-picks");
     if (saved) return JSON.parse(saved);
-    
-    // Initial mock daily picks setup
     return {
       prompt: "As a global stock market trading expert analyze the stocks that dropped more than 25-30% in the past month / week and you would buy today for a target of 30% price increase in the next 6 month with a low-medium risk",
       count: 5,
@@ -79,7 +83,7 @@ export default function App() {
 
   const [notifications, setNotifications] = useState([]);
 
-  // Sync user state on login/switch
+  // Sync state on user login/switch
   useEffect(() => {
     if (currentUser) {
       setFavorites(currentUser.favorites || []);
@@ -89,25 +93,6 @@ export default function App() {
       setAlerts([]);
     }
   }, [currentUser]);
-
-  // Save changes to the users list whenever favorites or alerts change
-  useEffect(() => {
-    if (currentUser) {
-      const updatedUser = { ...currentUser, favorites, alerts };
-      // Prevent infinite effect loops by only committing if changed
-      if (JSON.stringify(currentUser.favorites) !== JSON.stringify(favorites) || 
-          JSON.stringify(currentUser.alerts) !== JSON.stringify(alerts)) {
-        setCurrentUser(updatedUser);
-        localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
-
-        setUsers((prevUsers) => {
-          const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
-          localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-          return nextUsers;
-        });
-      }
-    }
-  }, [favorites, alerts]);
 
   // Theme Syncing
   useEffect(() => {
@@ -124,7 +109,7 @@ export default function App() {
     localStorage.setItem("foxstock-indicators", JSON.stringify(visibleIndicators));
   }, [visibleIndicators]);
 
-  // User Actions Auth
+  // Auth Functions
   const handleRegister = (email, password, verificationCode) => {
     const exists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
     if (exists) return false;
@@ -208,9 +193,76 @@ export default function App() {
     setActiveTab("dashboard");
   };
 
+  // Change Password
+  const handleChangePassword = (e) => {
+    e.preventDefault();
+    setPassModalError("");
+    setPassModalSuccess("");
+
+    if (!oldPassInput || !newPassInput || !confirmNewPassInput) {
+      setPassModalError("Please fill in all fields.");
+      return;
+    }
+
+    if (oldPassInput !== currentUser.password) {
+      setPassModalError("Incorrect current password.");
+      return;
+    }
+
+    if (newPassInput !== confirmNewPassInput) {
+      setPassModalError("New passwords do not match.");
+      return;
+    }
+
+    if (newPassInput.length < 6) {
+      setPassModalError("New password must be at least 6 characters.");
+      return;
+    }
+
+    // Update in database and state
+    const updatedUser = { ...currentUser, password: newPassInput };
+    setCurrentUser(updatedUser);
+    localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+
+    setUsers((prevUsers) => {
+      const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      return nextUsers;
+    });
+
+    setPassModalSuccess("Password changed successfully!");
+    setOldPassInput("");
+    setNewPassInput("");
+    setConfirmNewPassInput("");
+
+    setTimeout(() => {
+      setShowPasswordModal(false);
+      setPassModalSuccess("");
+    }, 1500);
+  };
+
+  // Helper database synchronizer (avoids infinite loops)
+  const syncPreferencesToDb = (nextFavorites, nextAlerts) => {
+    if (!currentUser) return;
+    const updatedUser = { 
+      ...currentUser, 
+      favorites: nextFavorites || favorites, 
+      alerts: nextAlerts || alerts 
+    };
+    
+    setCurrentUser(updatedUser);
+    localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+
+    setUsers((prevUsers) => {
+      const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
+      return nextUsers;
+    });
+  };
+
   // Admin Actions
   const handleToggleBlockUser = (email) => {
-    if (email.toLowerCase() === "admin@foxstock.com") return; // Keep main admin safe
+    if (email.toLowerCase() === "admin@foxstock.com") return;
     
     setUsers((prevUsers) => {
       const nextUsers = prevUsers.map((u) => 
@@ -220,7 +272,7 @@ export default function App() {
       return nextUsers;
     });
 
-    // If blocked user is currently logged in, force log them out
+    // Force logout if blocked
     const updatedUsersList = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
     const checkBlocked = updatedUsersList.find(u => u.email.toLowerCase() === email.toLowerCase());
     if (checkBlocked && checkBlocked.blocked && currentUser?.email.toLowerCase() === email.toLowerCase()) {
@@ -256,7 +308,6 @@ export default function App() {
   // Real-time market simulation loop
   useEffect(() => {
     const interval = setInterval(() => {
-      // Simulate stock price updates
       setStocks((prevStocks) => {
         return prevStocks.map((stock) => {
           const volatility = 0.002;
@@ -268,6 +319,10 @@ export default function App() {
           const newChangePercent = (newChange / (newPrice - newChange)) * 100;
           
           const newHistory = [...stock.history.slice(1), parseFloat(newPrice.toFixed(2))];
+
+          // 52 Week boundaries safety check
+          const updatedLow52 = Math.min(stock.low52, newPrice);
+          const updatedHigh52 = Math.max(stock.high52, newPrice);
 
           // Check if any active alerts are triggered for this stock
           alerts.forEach((alert) => {
@@ -292,9 +347,11 @@ export default function App() {
                 setNotifications((prev) => [newNotification, ...prev]);
 
                 // Auto-deactivate alert trigger
-                setAlerts((prevAlerts) =>
-                  prevAlerts.map((a) => (a.id === alert.id ? { ...a, active: false } : a))
-                );
+                setAlerts((prevAlerts) => {
+                  const nextAlerts = prevAlerts.map((a) => (a.id === alert.id ? { ...a, active: false } : a));
+                  syncPreferencesToDb(favorites, nextAlerts);
+                  return nextAlerts;
+                });
               }
             }
           });
@@ -304,6 +361,8 @@ export default function App() {
             price: parseFloat(newPrice.toFixed(2)),
             change: parseFloat(newChange.toFixed(2)),
             changePercent: parseFloat(newChangePercent.toFixed(2)),
+            low52: parseFloat(updatedLow52.toFixed(2)),
+            high52: parseFloat(updatedHigh52.toFixed(2)),
             history: newHistory
           };
         });
@@ -331,11 +390,13 @@ export default function App() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [alerts]);
+  }, [alerts, favorites]);
 
   // Live Yahoo Finance fetching
-  const fetchLivePrices = async () => {
-    const symbols = Array.from(new Set(["AAPL", "MSFT", "TSLA", "NVDA", "GOOGL", "AMZN", "NFLX", "META", ...favorites]));
+  const fetchLivePrices = async (customFavorites) => {
+    const activeFavs = customFavorites || favorites;
+    const symbols = Array.from(new Set(["AAPL", "MSFT", "TSLA", "NVDA", "GOOGL", "AMZN", "NFLX", "META", ...activeFavs]));
+    
     try {
       const promises = symbols.map(async (sym) => {
         const urls = [
@@ -378,11 +439,16 @@ export default function App() {
         prevStocks.map((stock) => {
           const liveData = updatedResults.find(r => r && r.symbol === stock.symbol);
           if (liveData) {
+            const updatedLow52 = Math.min(stock.low52, liveData.price);
+            const updatedHigh52 = Math.max(stock.high52, liveData.price);
+
             return {
               ...stock,
               price: liveData.price,
               change: liveData.change,
               changePercent: liveData.changePercent,
+              low52: parseFloat(updatedLow52.toFixed(2)),
+              high52: parseFloat(updatedHigh52.toFixed(2)),
               history: liveData.history.length > 0 ? liveData.history : stock.history
             };
           }
@@ -394,16 +460,15 @@ export default function App() {
     }
   };
 
-  // Run live fetches on mount and setup recurring refresh
+  // Run live fetches on mount and setup recurring refresh tied to favorites array
   useEffect(() => {
-    fetchLivePrices();
-    const liveInterval = setInterval(fetchLivePrices, 30000);
+    fetchLivePrices(favorites);
+    const liveInterval = setInterval(() => fetchLivePrices(favorites), 30000);
     return () => clearInterval(liveInterval);
-  }, []);
+  }, [favorites]);
 
   // Fetch custom stock range on demand
   const handleChangeStockRange = async (symbol, range) => {
-    // Map selected range parameters to query interval
     let interval = "1d";
     if (range === "1d") interval = "2m";
     else if (range === "5d") interval = "15m";
@@ -425,7 +490,7 @@ export default function App() {
         const result = data?.chart?.result?.[0];
         if (result) {
           const rawQuote = result.indicators?.quote?.[0]?.close || [];
-          const cleanHistory = rawQuote.filter(v => v !== null && v !== undefined).slice(-45); // take trailing slice points
+          const cleanHistory = rawQuote.filter(v => v !== null && v !== undefined).slice(-45);
 
           setStocks((prevStocks) =>
             prevStocks.map((stock) => {
@@ -443,7 +508,7 @@ export default function App() {
           break;
         }
       } catch (e) {
-        // silently try next fallback url
+        // silently try next url
       }
     }
 
@@ -452,28 +517,38 @@ export default function App() {
     }
   };
 
-  // Alert State Handlers
+  // Alert State Handlers (Autosyncs to database immediately)
   const handleAddAlert = (newAlert) => {
-    setAlerts((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        symbol: newAlert.symbol,
-        type: newAlert.type,
-        value: newAlert.value,
-        active: true
-      }
-    ]);
+    setAlerts((prev) => {
+      const nextAlerts = [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          symbol: newAlert.symbol,
+          type: newAlert.type,
+          value: newAlert.value,
+          active: true
+        }
+      ];
+      syncPreferencesToDb(favorites, nextAlerts);
+      return nextAlerts;
+    });
   };
 
   const handleRemoveAlert = (alertId) => {
-    setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    setAlerts((prev) => {
+      const nextAlerts = prev.filter((a) => a.id !== alertId);
+      syncPreferencesToDb(favorites, nextAlerts);
+      return nextAlerts;
+    });
   };
 
   const handleToggleAlertStatus = (alertId) => {
-    setAlerts((prev) =>
-      prev.map((a) => (a.id === alertId ? { ...a, active: !a.active } : a))
-    );
+    setAlerts((prev) => {
+      const nextAlerts = prev.map((a) => (a.id === alertId ? { ...a, active: !a.active } : a));
+      syncPreferencesToDb(favorites, nextAlerts);
+      return nextAlerts;
+    });
   };
 
   const handleTriggerAIRatingUpdate = () => {
@@ -506,11 +581,13 @@ export default function App() {
   };
 
   const handleToggleFavorite = (symbol) => {
-    setFavorites((prev) =>
-      prev.includes(symbol)
+    setFavorites((prev) => {
+      const nextFavorites = prev.includes(symbol)
         ? prev.filter((s) => s !== symbol)
-        : [...prev, symbol]
-    );
+        : [...prev, symbol];
+      syncPreferencesToDb(nextFavorites, alerts);
+      return nextFavorites;
+    });
   };
 
   const handleToggleIndicator = (indicatorId) => {
@@ -557,7 +634,13 @@ export default function App() {
     }
 
     if (!favorites.includes(sym)) {
-      setFavorites(prev => [...prev, sym]);
+      setFavorites((prev) => {
+        const nextFavorites = [...prev, sym];
+        syncPreferencesToDb(nextFavorites, alerts);
+        return nextFavorites;
+      });
+      // Fetch prices immediately
+      fetchLivePrices([...favorites, sym]);
     }
   };
 
@@ -687,6 +770,26 @@ export default function App() {
           </div>
 
           <button 
+            onClick={() => setShowPasswordModal(true)}
+            style={{ 
+              background: "none", 
+              border: "1px solid var(--border-glass)", 
+              color: "var(--text-primary)", 
+              padding: "8px", 
+              borderRadius: "10px", 
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "36px",
+              height: "36px"
+            }}
+            title="Change Password"
+          >
+            <Key size={16} />
+          </button>
+
+          <button 
             onClick={handleLogout}
             style={{ 
               background: "none", 
@@ -782,6 +885,90 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Change Password glassmorphic Modal popup */}
+      {showPasswordModal && (
+        <div style={{ 
+          position: "fixed", 
+          top: 0, left: 0, right: 0, bottom: 0, 
+          backgroundColor: "rgba(0,0,0,0.6)", 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "center", 
+          zIndex: 2000,
+          backdropFilter: "blur(8px)"
+        }}>
+          <div className="glass-panel" style={{ 
+            width: "100%", 
+            maxWidth: "380px", 
+            padding: "32px", 
+            display: "flex", 
+            flexDirection: "column", 
+            gap: "20px" 
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", color: "var(--color-primary)" }}>
+                <Lock size={18} /> Change Account Password
+              </h3>
+              <button 
+                onClick={() => { setShowPasswordModal(false); setPassModalError(""); setPassModalSuccess(""); }}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {passModalError && (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)", padding: "10px", borderRadius: "6px", fontSize: "0.8rem" }}>
+                <AlertTriangle size={14} />
+                <span>{passModalError}</span>
+              </div>
+            )}
+
+            {passModalSuccess && (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: "var(--color-success-bg)", color: "var(--color-success)", padding: "10px", borderRadius: "6px", fontSize: "0.8rem" }}>
+                <span>{passModalSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textAlign: "left" }}>Current Password</label>
+                <input 
+                  type="password" 
+                  value={oldPassInput} 
+                  onChange={(e) => setOldPassInput(e.target.value)}
+                  style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--border-glass)", backgroundColor: "var(--bg-secondary)", color: "#fff", outline: "none", fontSize: "0.9rem" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textAlign: "left" }}>New Password</label>
+                <input 
+                  type="password" 
+                  value={newPassInput} 
+                  onChange={(e) => setNewPassInput(e.target.value)}
+                  style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--border-glass)", backgroundColor: "var(--bg-secondary)", color: "#fff", outline: "none", fontSize: "0.9rem" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textAlign: "left" }}>Confirm New Password</label>
+                <input 
+                  type="password" 
+                  value={confirmNewPassInput} 
+                  onChange={(e) => setConfirmNewPassInput(e.target.value)}
+                  style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--border-glass)", backgroundColor: "var(--bg-secondary)", color: "#fff", outline: "none", fontSize: "0.9rem" }}
+                />
+              </div>
+
+              <button type="submit" className="btn-primary" style={{ width: "100%", justifyContent: "center", padding: "10px", borderRadius: "6px", fontSize: "0.85rem", marginTop: "8px" }}>
+                Update Password
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Footer bar */}
       <footer className="glass-panel" style={{ 
