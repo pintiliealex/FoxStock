@@ -116,13 +116,13 @@ export default function App() {
     return new TextDecoder().decode(bytes);
   };
 
-  // Cloud Database Sync helpers (uses keyvalue.immanuel.co CORS-friendly public KV store proxied via corsproxy.io)
+  // Cloud Database Sync helpers (uses keyvalue.immanuel.co CORS-friendly public KV store)
   const syncUsersFromCloud = async () => {
     setDbStatus("syncing");
     try {
-      const targetUrl = `https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_registry_v1/users_list?cb=${Date.now()}`;
-      // Wrap through corsproxy.io to bypass local Brave Shields/adblockers and secure CORS headers
-      const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`);
+      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_registry_v1/users_list?cb=${Date.now()}`, {
+        credentials: "omit"
+      });
       
       if (res.ok) {
         const text = await res.text();
@@ -203,12 +203,12 @@ export default function App() {
     try {
       const value = JSON.stringify(nextUsers);
       const encoded = toBase64Url(value);
-      const targetUrl = `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_cloud_registry_v1/users_list/${encoded}`;
-      // Wrap through corsproxy.io to bypass local Brave Shields/adblockers and secure CORS headers
-      await fetch(`https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`, {
+      // POST directly as a CORS-safe Simple Request with dummy body and omitted credentials
+      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_cloud_registry_v1/users_list/${encoded}`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "updated=true"
+        body: "updated=true",
+        credentials: "omit"
       });
     } catch (e) {
       console.warn("Failed to push user records to cloud:", e);
