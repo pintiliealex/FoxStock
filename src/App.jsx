@@ -95,82 +95,74 @@ export default function App() {
 
   const [notifications, setNotifications] = useState([]);
 
-  // Cloud Database Sync helpers (uses setget.net CORS-friendly public bin with cache-buster)
+  // Base64url Encoder/Decoder helpers for safe IIS URL path parameter transmissions
+  const toBase64Url = (str) => {
+    const base64 = btoa(unescape(encodeURIComponent(str)));
+    return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  };
+
+  const fromBase64Url = (base64url) => {
+    let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) {
+      base64 += "=";
+    }
+    return decodeURIComponent(escape(atob(base64)));
+  };
+
+  // Cloud Database Sync helpers (uses keyvalue.immanuel.co CORS-friendly public KV store)
   const syncUsersFromCloud = async () => {
     try {
-      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
+      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_app_key_2026/users_list?cb=${Date.now()}`);
       if (res.ok) {
-        const data = await res.json();
-        const cloudUsers = data?.value || [];
-        
-        // Fetch local cache
-        const savedUsers = localStorage.getItem("foxstock-users");
-        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
+        const text = await res.text();
+        if (text && text !== '""') {
+          const cleanText = text.replace(/^"|"$/g, "");
+          const decoded = fromBase64Url(cleanText);
+          const cloudUsers = JSON.parse(decoded) || [];
+          
+          // Fetch local cache
+          const savedUsers = localStorage.getItem("foxstock-users");
+          const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
 
-        // MERGE LOGIC: Combine cloud and local users by unique email (case-insensitive)
-        const mergedUsers = [...cloudUsers];
-        let hasNewLocalUsers = false;
+          // MERGE LOGIC: Combine cloud and local users by unique email (case-insensitive)
+          const mergedUsers = [...cloudUsers];
+          let hasNewLocalUsers = false;
 
-        localUsers.forEach((localU) => {
-          const existsInCloud = mergedUsers.some(
-            (cloudU) => cloudU.email.toLowerCase() === localU.email.toLowerCase()
-          );
-          if (!existsInCloud) {
-            mergedUsers.push(localU);
+          localUsers.forEach((localU) => {
+            const existsInCloud = mergedUsers.some(
+              (cloudU) => cloudU.email.toLowerCase() === localU.email.toLowerCase()
+            );
+            if (!existsInCloud) {
+              mergedUsers.push(localU);
+              hasNewLocalUsers = true;
+            }
+          });
+
+          // Ensure default admin exists
+          const adminExists = mergedUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
+          if (!adminExists) {
+            const defaultAdmin = {
+              email: "admin@foxstock.com",
+              password: "admin123",
+              role: "admin",
+              status: "active",
+              verificationCode: "",
+              blocked: false,
+              favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
+              alerts: [],
+              triggeredAlerts: []
+            };
+            mergedUsers.unshift(defaultAdmin);
             hasNewLocalUsers = true;
           }
-        });
 
-        // Ensure default admin exists
-        const adminExists = mergedUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
-        if (!adminExists) {
-          const defaultAdmin = {
-            email: "admin@foxstock.com",
-            password: "admin123",
-            role: "admin",
-            status: "active",
-            verificationCode: "",
-            blocked: false,
-            favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-            alerts: [],
-            triggeredAlerts: []
-          };
-          mergedUsers.unshift(defaultAdmin);
-          hasNewLocalUsers = true; // Force write default admin to cloud
-        }
+          setUsers(mergedUsers);
+          localStorage.setItem("foxstock-users", JSON.stringify(mergedUsers));
 
-        // Update state and local cache
-        setUsers(mergedUsers);
-        localStorage.setItem("foxstock-users", JSON.stringify(mergedUsers));
-
-        // If local had accounts not yet in cloud, push combined list back to cloud
-        if (hasNewLocalUsers) {
-          await pushUsersToCloud(mergedUsers);
+          if (hasNewLocalUsers) {
+            await pushUsersToCloud(mergedUsers);
+          }
         }
-      } else if (res.status === 404) {
-        // Seed first time from local storage or default admin
-        const savedUsers = localStorage.getItem("foxstock-users");
-        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
-        
-        const adminExists = localUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
-        let initialList = [...localUsers];
-        if (!adminExists) {
-          const defaultAdmin = {
-            email: "admin@foxstock.com",
-            password: "admin123",
-            role: "admin",
-            status: "active",
-            verificationCode: "",
-            blocked: false,
-            favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-            alerts: [],
-            triggeredAlerts: []
-          };
-          initialList.unshift(defaultAdmin);
-        }
-        setUsers(initialList);
-        localStorage.setItem("foxstock-users", JSON.stringify(initialList));
-        await pushUsersToCloud(initialList);
       }
     } catch (e) {
       console.warn("Failed to sync user records from cloud:", e);
@@ -179,9 +171,10 @@ export default function App() {
 
   const pushUsersToCloud = async (nextUsers) => {
     try {
-      await fetch("https://setget.net/set/foxstock_production_users_db_2026", {
-        method: "POST",
-        body: JSON.stringify(nextUsers)
+      const value = JSON.stringify(nextUsers);
+      const encoded = toBase64Url(value);
+      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_app_key_2026/users_list/${encoded}`, {
+        method: "POST"
       });
     } catch (e) {
       console.warn("Failed to push user records to cloud:", e);
@@ -270,18 +263,10 @@ export default function App() {
 
   // Auth Functions
   const handleRegister = async (email, password, verificationCode) => {
-    let latestUsers = [];
-    try {
-      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
-      if (res.ok) {
-        const data = await res.json();
-        latestUsers = data?.value || [];
-      }
-    } catch (e) {
-      latestUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    }
-
-    const exists = latestUsers.some((u) => u.email.toLowerCase() === email.toLowerCase());
+    await syncUsersFromCloud();
+    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    
+    const exists = savedUsers.some((u) => u.email.toLowerCase() === email.toLowerCase());
     if (exists) return false;
 
     const newUser = {
@@ -296,7 +281,7 @@ export default function App() {
       triggeredAlerts: []
     };
 
-    const nextUsers = [...latestUsers, newUser];
+    const nextUsers = [...savedUsers, newUser];
     setUsers(nextUsers);
     localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
     await pushUsersToCloud(nextUsers);
@@ -304,19 +289,11 @@ export default function App() {
   };
 
   const handleVerifyCode = async (email, code) => {
-    let latestUsers = [];
-    try {
-      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
-      if (res.ok) {
-        const data = await res.json();
-        latestUsers = data?.value || [];
-      }
-    } catch (e) {
-      latestUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    }
-
+    await syncUsersFromCloud();
+    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    
     let verified = false;
-    const nextUsers = latestUsers.map((u) => {
+    const nextUsers = savedUsers.map((u) => {
       if (u.email.toLowerCase() === email.toLowerCase() && u.verificationCode === code) {
         verified = true;
         return { ...u, status: "active", verificationCode: "" };
@@ -333,19 +310,11 @@ export default function App() {
   };
 
   const handleForgotPassword = async (email, tempPass) => {
-    let latestUsers = [];
-    try {
-      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
-      if (res.ok) {
-        const data = await res.json();
-        latestUsers = data?.value || [];
-      }
-    } catch (e) {
-      latestUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    }
-
+    await syncUsersFromCloud();
+    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    
     let success = false;
-    const nextUsers = latestUsers.map((u) => {
+    const nextUsers = savedUsers.map((u) => {
       if (u.email.toLowerCase() === email.toLowerCase()) {
         success = true;
         return { ...u, password: tempPass };
@@ -362,20 +331,10 @@ export default function App() {
   };
 
   const handleLogin = async (email, password) => {
-    let latestUsers = users;
-    try {
-      const res = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
-      if (res.ok) {
-        const data = await res.json();
-        latestUsers = data?.value || [];
-        setUsers(latestUsers);
-        localStorage.setItem("foxstock-users", JSON.stringify(latestUsers));
-      }
-    } catch (e) {
-      // Fallback to local state if server offline
-    }
+    await syncUsersFromCloud();
+    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
 
-    const foundUser = latestUsers.find(
+    const foundUser = savedUsers.find(
       (u) => u.email.toLowerCase() === email.toLowerCase()
     );
 
@@ -430,18 +389,14 @@ export default function App() {
     }
 
     try {
-      let latestUsers = [];
-      const getRes = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
-      if (getRes.ok) {
-        const data = await getRes.json();
-        latestUsers = data?.value || [];
-      }
+      await syncUsersFromCloud();
+      const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
 
       const updatedUser = { ...currentUser, password: newPassInput };
       setCurrentUser(updatedUser);
       localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
 
-      const nextUsers = latestUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
+      const nextUsers = savedUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
       setUsers(nextUsers);
       localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
       await pushUsersToCloud(nextUsers);
@@ -486,14 +441,10 @@ export default function App() {
     if (email.toLowerCase() === "admin@foxstock.com") return;
     
     try {
-      let latestUsers = [];
-      const getRes = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
-      if (getRes.ok) {
-        const data = await getRes.json();
-        latestUsers = data?.value || [];
-      }
+      await syncUsersFromCloud();
+      const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
 
-      const nextUsers = latestUsers.map((u) => 
+      const nextUsers = savedUsers.map((u) => 
         u.email.toLowerCase() === email.toLowerCase() ? { ...u, blocked: !u.blocked } : u
       );
       
@@ -515,14 +466,10 @@ export default function App() {
     if (email.toLowerCase() === "admin@foxstock.com") return;
     
     try {
-      let latestUsers = [];
-      const getRes = await fetch(`https://setget.net/get/foxstock_production_users_db_2026?cb=${Date.now()}`);
-      if (getRes.ok) {
-        const data = await getRes.json();
-        latestUsers = data?.value || [];
-      }
+      await syncUsersFromCloud();
+      const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
 
-      const nextUsers = latestUsers.map((u) => 
+      const nextUsers = savedUsers.map((u) => 
         u.email.toLowerCase() === email.toLowerCase() ? { ...u, role: u.role === "admin" ? "user" : "admin" } : u
       );
 
@@ -571,7 +518,6 @@ export default function App() {
       });
 
       if (triggeredAny) {
-        // Collect new triggered logs
         const triggeredAlerts = prevAlerts.filter(a => a.active).map(a => {
           const nextA = nextAlerts.find(na => na.id === a.id);
           if (a.active && nextA && !nextA.active) {
@@ -592,7 +538,6 @@ export default function App() {
           setTriggeredAlertLogs((prevLogs) => {
             const nextLogs = [...triggeredAlerts, ...prevLogs];
             
-            // Sync preferences to DB atomically
             if (currentUser) {
               const updatedUser = { 
                 ...currentUser, 
@@ -612,7 +557,6 @@ export default function App() {
             return nextLogs;
           });
 
-          // Show transient red notifications
           triggeredAlerts.forEach(log => {
             const newNotification = {
               id: log.id,
