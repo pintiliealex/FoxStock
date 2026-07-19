@@ -112,13 +112,20 @@ export default function App() {
   // Cloud Database Sync helpers (uses keyvalue.immanuel.co CORS-friendly public KV store)
   const syncUsersFromCloud = async () => {
     try {
-      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_app_key_2026/users_list?cb=${Date.now()}`);
+      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_production_db_key_2026/users_list?cb=${Date.now()}`);
       if (res.ok) {
         const text = await res.text();
         if (text && text !== '""') {
           const cleanText = text.replace(/^"|"$/g, "");
           const decoded = fromBase64Url(cleanText);
-          const cloudUsers = JSON.parse(decoded) || [];
+          
+          let parsedData = JSON.parse(decoded);
+          let cloudUsers = [];
+          if (Array.isArray(parsedData)) {
+            cloudUsers = parsedData;
+          } else if (parsedData && Array.isArray(parsedData.users)) {
+            cloudUsers = parsedData.users;
+          }
           
           // Fetch local cache
           const savedUsers = localStorage.getItem("foxstock-users");
@@ -173,7 +180,7 @@ export default function App() {
     try {
       const value = JSON.stringify(nextUsers);
       const encoded = toBase64Url(value);
-      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_app_key_2026/users_list/${encoded}`, {
+      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_production_db_key_2026/users_list/${encoded}`, {
         method: "POST"
       });
     } catch (e) {
