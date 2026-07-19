@@ -414,6 +414,10 @@ export default function App() {
             }
           });
 
+          const currentAth = typeof stock.ath === "number" ? stock.ath : newPrice;
+          const updatedAth = newPrice > currentAth ? newPrice : currentAth;
+          const updatedAthDate = newPrice > currentAth ? new Date().toISOString().split('T')[0] : (stock.athDate || "2024-07-15");
+
           return {
             ...stock,
             price: parseFloat(newPrice.toFixed(2)),
@@ -421,6 +425,8 @@ export default function App() {
             changePercent: parseFloat(newChangePercent.toFixed(2)),
             low52: parseFloat(updatedLow52.toFixed(2)),
             high52: parseFloat(updatedHigh52.toFixed(2)),
+            ath: parseFloat(updatedAth.toFixed(2)),
+            athDate: updatedAthDate,
             history: newHistory
           };
         });
@@ -517,6 +523,10 @@ export default function App() {
               }
             }
 
+            const currentAth = typeof stock.ath === "number" ? stock.ath : liveData.price;
+            const updatedAth = liveData.price > currentAth ? liveData.price : currentAth;
+            const updatedAthDate = liveData.price > currentAth ? new Date().toISOString().split('T')[0] : (stock.athDate || "2024-07-15");
+
             return {
               ...stock,
               price: liveData.price,
@@ -524,6 +534,8 @@ export default function App() {
               changePercent: liveData.changePercent,
               low52: liveData.low52,
               high52: liveData.high52,
+              ath: parseFloat(updatedAth.toFixed(2)),
+              athDate: updatedAthDate,
               history: sliceHistory
             };
           }

@@ -272,10 +272,29 @@ export default function Watchlist({
                     </div>
                   )}
 
+                  {visibleIndicators.includes("industryPe") && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
+                      <span style={{ color: "var(--text-secondary)" }}>Industry P/E</span>
+                      <span style={{ fontWeight: "600" }}>{stock.industryPe || "25.8"}</span>
+                    </div>
+                  )}
+
                   {visibleIndicators.includes("range52") && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                       <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", textAlign: "left" }}>52-Week Range</span>
                       {renderRange52(stock)}
+                    </div>
+                  )}
+
+                  {visibleIndicators.includes("ath") && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "0.85rem", textAlign: "left" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>All-Time High</span>
+                        <span style={{ fontWeight: "600", color: "var(--color-success)" }}>${stock.ath ? stock.ath.toFixed(2) : (stock.price * 1.15).toFixed(2)}</span>
+                      </div>
+                      <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", alignSelf: "flex-end" }}>
+                        Happened: {stock.athDate || "2024-07-15"}
+                      </span>
                     </div>
                   )}
 
@@ -316,22 +335,26 @@ export default function Watchlist({
                       {(() => {
                         const perf = getRangePerformance(stock.history);
                         if (!perf) return null;
-                        const isPos = perf.isPositive;
+                        const isPeriodPos = perf.isPositive;
                         return (
                           <div style={{ 
                             fontSize: "0.75rem", 
-                            color: isPos ? "var(--color-success)" : "var(--color-danger)",
+                            color: isPeriodPos ? "var(--color-success)" : "var(--color-danger)",
                             fontWeight: "700",
                             textAlign: "left",
                             marginTop: "-4px",
                             marginBottom: "4px"
                           }}>
-                            Period Return: {isPos ? "+" : ""}{perf.pct.toFixed(2)}% ({isPos ? "+" : ""}${perf.diff.toFixed(2)})
+                            Period Return: {isPeriodPos ? "+" : ""}{perf.pct.toFixed(2)}% ({isPeriodPos ? "+" : ""}${perf.diff.toFixed(2)})
                           </div>
                         );
                       })()}
                       <div style={{ padding: "6px 0" }}>
-                        <Sparkline data={stock.history} isPositive={isPos} />
+                        {(() => {
+                          const perf = getRangePerformance(stock.history);
+                          const isPeriodPos = perf ? perf.isPositive : isPos;
+                          return <Sparkline data={stock.history} isPositive={isPeriodPos} />;
+                        })()}
                       </div>
                     </div>
                   )}
