@@ -102,44 +102,75 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         const cloudUsers = data?.value || [];
-        if (cloudUsers.length > 0) {
-          // Merge to ensure admin account always exists
-          const adminExists = cloudUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
-          let merged = [...cloudUsers];
-          if (!adminExists) {
-            const defaultAdmin = {
-              email: "admin@foxstock.com",
-              password: "admin123",
-              role: "admin",
-              status: "active",
-              verificationCode: "",
-              blocked: false,
-              favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-              alerts: [],
-              triggeredAlerts: []
-            };
-            merged = [defaultAdmin, ...cloudUsers];
+        
+        // Fetch local cache
+        const savedUsers = localStorage.getItem("foxstock-users");
+        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
+
+        // MERGE LOGIC: Combine cloud and local users by unique email (case-insensitive)
+        const mergedUsers = [...cloudUsers];
+        let hasNewLocalUsers = false;
+
+        localUsers.forEach((localU) => {
+          const existsInCloud = mergedUsers.some(
+            (cloudU) => cloudU.email.toLowerCase() === localU.email.toLowerCase()
+          );
+          if (!existsInCloud) {
+            mergedUsers.push(localU);
+            hasNewLocalUsers = true;
           }
-          setUsers(merged);
-          localStorage.setItem("foxstock-users", JSON.stringify(merged));
+        });
+
+        // Ensure default admin exists
+        const adminExists = mergedUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
+        if (!adminExists) {
+          const defaultAdmin = {
+            email: "admin@foxstock.com",
+            password: "admin123",
+            role: "admin",
+            status: "active",
+            verificationCode: "",
+            blocked: false,
+            favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
+            alerts: [],
+            triggeredAlerts: []
+          };
+          mergedUsers.unshift(defaultAdmin);
+          hasNewLocalUsers = true; // Force write default admin to cloud
+        }
+
+        // Update state and local cache
+        setUsers(mergedUsers);
+        localStorage.setItem("foxstock-users", JSON.stringify(mergedUsers));
+
+        // If local had accounts not yet in cloud, push combined list back to cloud
+        if (hasNewLocalUsers) {
+          await pushUsersToCloud(mergedUsers);
         }
       } else if (res.status === 404) {
-        // Seed first time
-        const defaultAdmin = {
-          email: "admin@foxstock.com",
-          password: "admin123",
-          role: "admin",
-          status: "active",
-          verificationCode: "",
-          blocked: false,
-          favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-          alerts: [],
-          triggeredAlerts: []
-        };
-        await fetch("https://setget.net/set/foxstock_production_users_db_2026", {
-          method: "POST",
-          body: JSON.stringify([defaultAdmin])
-        });
+        // Seed first time from local storage or default admin
+        const savedUsers = localStorage.getItem("foxstock-users");
+        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
+        
+        const adminExists = localUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
+        let initialList = [...localUsers];
+        if (!adminExists) {
+          const defaultAdmin = {
+            email: "admin@foxstock.com",
+            password: "admin123",
+            role: "admin",
+            status: "active",
+            verificationCode: "",
+            blocked: false,
+            favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
+            alerts: [],
+            triggeredAlerts: []
+          };
+          initialList.unshift(defaultAdmin);
+        }
+        setUsers(initialList);
+        localStorage.setItem("foxstock-users", JSON.stringify(initialList));
+        await pushUsersToCloud(initialList);
       }
     } catch (e) {
       console.warn("Failed to sync user records from cloud:", e);
