@@ -1,7 +1,7 @@
 import React from "react";
 import { Users, ShieldCheck, Ban, CheckCircle, HelpCircle, UserX, UserCheck, ShieldAlert, Activity } from "lucide-react";
 
-export default function AdminPanel({ users, onToggleBlockUser, onToggleUserRole, onSyncDatabase }) {
+export default function AdminPanel({ users, onToggleBlockUser, onToggleUserRole, onSyncDatabase, dbStatus, lastSyncTime, dbKey }) {
   const totalUsers = users.length;
   const blockedUsers = users.filter((u) => u.blocked).length;
   const pendingUsers = users.filter((u) => u.status === "pending").length;
@@ -18,24 +18,52 @@ export default function AdminPanel({ users, onToggleBlockUser, onToggleUserRole,
             Monitor system metrics, review registered profiles, and configure access permissions.
           </p>
         </div>
-        {onSyncDatabase && (
-          <button 
-            onClick={onSyncDatabase}
-            className="btn-primary"
-            style={{ 
-              padding: "10px 16px", 
-              borderRadius: "10px", 
-              fontSize: "0.85rem", 
-              display: "flex", 
-              alignItems: "center", 
-              gap: "6px",
-              border: "none",
-              cursor: "pointer"
-            }}
-          >
-            <Activity size={14} /> Refresh Cloud Database
-          </button>
-        )}
+        
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+          {/* Cloud Database Connection indicator */}
+          <div style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "8px", 
+            padding: "8px 12px", 
+            borderRadius: "8px", 
+            background: "rgba(255,255,255,0.02)", 
+            border: "1px solid var(--border-glass)",
+            fontSize: "0.8rem"
+          }}>
+            <span style={{ 
+              width: "8px", 
+              height: "8px", 
+              borderRadius: "50%", 
+              backgroundColor: dbStatus === "online" ? "#22c55e" : dbStatus === "syncing" ? "#eab308" : "#ef4444",
+              boxShadow: dbStatus === "online" ? "0 0 8px #22c55e" : dbStatus === "syncing" ? "0 0 8px #eab308" : "0 0 8px #ef4444",
+              display: "inline-block"
+            }}></span>
+            <span style={{ color: "var(--text-secondary)", fontWeight: "500" }}>
+              Cloud Database: <span style={{ color: "#fff" }}>{dbKey || "foxstock_cloud_sync_db_v3"}</span> 
+              {lastSyncTime && <span style={{ opacity: 0.6 }}> (Last Sync: {lastSyncTime})</span>}
+            </span>
+          </div>
+
+          {onSyncDatabase && (
+            <button 
+              onClick={onSyncDatabase}
+              className="btn-primary"
+              style={{ 
+                padding: "10px 16px", 
+                borderRadius: "10px", 
+                fontSize: "0.85rem", 
+                display: "flex", 
+                alignItems: "center", 
+                gap: "6px",
+                border: "none",
+                cursor: "pointer"
+              }}
+            >
+              <Activity size={14} className={dbStatus === "syncing" ? "bell-shake" : ""} /> Refresh Cloud Database
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats Cards */}

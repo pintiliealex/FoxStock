@@ -43,6 +43,9 @@ export default function App() {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
+  const [dbStatus, setDbStatus] = useState("online");
+  const [lastSyncTime, setLastSyncTime] = useState(() => new Date().toLocaleTimeString());
+
   // User Preferences
   const [favorites, setFavorites] = useState([]);
   const [alerts, setAlerts] = useState([]);
@@ -97,7 +100,9 @@ export default function App() {
 
   // Base64url Encoder/Decoder helpers for safe IIS URL path parameter transmissions
   const toBase64Url = (str) => {
-    const base64 = btoa(unescape(encodeURIComponent(str)));
+    const bytes = new TextEncoder().encode(str);
+    const binString = String.fromCharCode(...bytes);
+    const base64 = btoa(binString);
     return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
   };
 
@@ -106,13 +111,16 @@ export default function App() {
     while (base64.length % 4) {
       base64 += "=";
     }
-    return decodeURIComponent(escape(atob(base64)));
+    const binString = atob(base64);
+    const bytes = Uint8Array.from(binString, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
   };
 
   // Cloud Database Sync helpers (uses keyvalue.immanuel.co CORS-friendly public KV store)
   const syncUsersFromCloud = async () => {
+    setDbStatus("syncing");
     try {
-      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_production_db_key_2026/users_list?cb=${Date.now()}`);
+      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_sync_db_v3/users_list?cb=${Date.now()}`);
       if (res.ok) {
         const text = await res.text();
         if (text && text !== '""') {
@@ -165,14 +173,26 @@ export default function App() {
 
           setUsers(mergedUsers);
           localStorage.setItem("foxstock-users", JSON.stringify(mergedUsers));
+          setDbStatus("online");
+          setLastSyncTime(new Date().toLocaleTimeString());
 
           if (hasNewLocalUsers) {
             await pushUsersToCloud(mergedUsers);
           }
+        } else {
+          // Database is empty or uninitialized - seed local cache list
+          const savedUsers = localStorage.getItem("foxstock-users");
+          const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
+          setDbStatus("online");
+          setLastSyncTime(new Date().toLocaleTimeString());
+          await pushUsersToCloud(localUsers.length > 0 ? localUsers : users);
         }
+      } else {
+        setDbStatus("error");
       }
     } catch (e) {
       console.warn("Failed to sync user records from cloud:", e);
+      setDbStatus("error");
     }
   };
 
@@ -180,8 +200,11 @@ export default function App() {
     try {
       const value = JSON.stringify(nextUsers);
       const encoded = toBase64Url(value);
-      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_production_db_key_2026/users_list/${encoded}`, {
-        method: "POST"
+      // POST with a dummy body to satisfy standard-spec proxies and firewalls
+      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_cloud_sync_db_v3/users_list/${encoded}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updated: true })
       });
     } catch (e) {
       console.warn("Failed to push user records to cloud:", e);
@@ -1289,6 +1312,9 @@ export default function App() {
             onToggleBlockUser={handleToggleBlockUser}
             onToggleUserRole={handleToggleUserRole}
             onSyncDatabase={syncUsersFromCloud}
+            dbStatus={dbStatus}
+            lastSyncTime={lastSyncTime}
+            dbKey="foxstock_cloud_sync_db_v3"
           />
         )}
       </main>
