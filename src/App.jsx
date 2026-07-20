@@ -151,6 +151,76 @@ export default function App() {
     return () => clearInterval(syncInterval);
   }, []);
 
+  // Handle automatic account activation and login when redirected from verification email
+  useEffect(() => {
+    const handleAuthRedirect = async (session) => {
+      if (!session || !session.user) return;
+      const email = session.user.email.toLowerCase();
+
+      try {
+        // Fetch current profile
+        const { data: profile, error } = await supabase
+          .from('foxstock_users')
+          .select('*')
+          .eq('email', email)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (profile && profile.status === "pending") {
+          // Update status to active in Supabase DB
+          const { error: updateError } = await supabase
+            .from('foxstock_users')
+            .update({ status: "active", verification_code: "" })
+            .eq('email', email);
+
+          if (updateError) throw updateError;
+
+          await syncUsersFromCloud();
+
+          // Set user in React state & localStorage
+          const activatedUser = {
+            ...profile,
+            status: "active",
+            verification_code: "",
+            verificationCode: "",
+            triggeredAlerts: profile.triggered_alerts || []
+          };
+          setCurrentUser(activatedUser);
+          localStorage.setItem("foxstock-current-user", JSON.stringify(activatedUser));
+        } else if (profile && (!currentUser || currentUser.email.toLowerCase() !== email)) {
+          // Normal login fallback if redirected and already active
+          const activeUser = {
+            ...profile,
+            verificationCode: profile.verification_code || "",
+            triggeredAlerts: profile.triggered_alerts || []
+          };
+          setCurrentUser(activeUser);
+          localStorage.setItem("foxstock-current-user", JSON.stringify(activeUser));
+        }
+      } catch (e) {
+        console.error("Redirect auth error:", e);
+      }
+    };
+
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) handleAuthRedirect(session);
+    });
+
+    // Listen for sign in events (like email confirmation redirect redirects)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        handleAuthRedirect(session);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [currentUser]);
+
+
   // Sync state on user login/switch
   useEffect(() => {
     if (currentUser) {

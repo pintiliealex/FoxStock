@@ -51,7 +51,8 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
       } else {
         setPendingEmail(email);
         setAuthMode("verify");
-        setMockMailNotice(`MOCK EMAIL SENT to ${email}: Your 6-digit activation code is [ ${generatedCode} ]`);
+        console.log(`MOCK EMAIL SENT to ${email}: Your 6-digit activation code is [ ${generatedCode} ]`);
+        setMockMailNotice(`An activation email has been sent to ${email}. Please check your inbox to confirm and activate your account.`);
       }
     } 
     
