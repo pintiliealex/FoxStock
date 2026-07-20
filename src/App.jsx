@@ -116,80 +116,77 @@ export default function App() {
     return new TextDecoder().decode(bytes);
   };
 
-  // Cloud Database Sync helpers (uses keyvalue.immanuel.co CORS-friendly public KV store)
+  // Cloud Database Sync helpers (uses setget.net CORS-friendly public KV store)
   const syncUsersFromCloud = async () => {
     setDbStatus("syncing");
     try {
-      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/foxstock_cloud_registry_v1/users_list?cb=${Date.now()}`, {
+      const res = await fetch(`https://setget.net/get/foxstock_users_registry_2026_v1?cb=${Date.now()}`, {
         credentials: "omit"
       });
       
       if (res.ok) {
         const text = await res.text();
-        if (text && text !== '""') {
-          const cleanText = text.replace(/^"|"$/g, "");
-          const decoded = fromBase64Url(cleanText);
-          
-          let parsedData = JSON.parse(decoded);
-          let cloudUsers = [];
-          if (Array.isArray(parsedData)) {
-            cloudUsers = parsedData;
-          } else if (parsedData && Array.isArray(parsedData.users)) {
-            cloudUsers = parsedData.users;
-          }
-          
-          // Fetch local cache
-          const savedUsers = localStorage.getItem("foxstock-users");
-          const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
+        const parsed = JSON.parse(text);
+        const cloudValue = parsed.value;
+        
+        let cloudUsers = [];
+        if (Array.isArray(cloudValue)) {
+          cloudUsers = cloudValue;
+        } else if (cloudValue && Array.isArray(cloudValue.users)) {
+          cloudUsers = cloudValue.users;
+        }
+        
+        // Fetch local cache
+        const savedUsers = localStorage.getItem("foxstock-users");
+        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
 
-          // MERGE LOGIC: Combine cloud and local users by unique email (case-insensitive)
-          const mergedUsers = [...cloudUsers];
-          let hasNewLocalUsers = false;
+        // MERGE LOGIC: Combine cloud and local users by unique email (case-insensitive)
+        const mergedUsers = [...cloudUsers];
+        let hasNewLocalUsers = false;
 
-          localUsers.forEach((localU) => {
-            const existsInCloud = mergedUsers.some(
-              (cloudU) => cloudU.email.toLowerCase() === localU.email.toLowerCase()
-            );
-            if (!existsInCloud) {
-              mergedUsers.push(localU);
-              hasNewLocalUsers = true;
-            }
-          });
-
-          // Ensure default admin exists
-          const adminExists = mergedUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
-          if (!adminExists) {
-            const defaultAdmin = {
-              email: "admin@foxstock.com",
-              password: "admin123",
-              role: "admin",
-              status: "active",
-              verificationCode: "",
-              blocked: false,
-              favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-              alerts: [],
-              triggeredAlerts: []
-            };
-            mergedUsers.unshift(defaultAdmin);
+        localUsers.forEach((localU) => {
+          const existsInCloud = mergedUsers.some(
+            (cloudU) => cloudU.email.toLowerCase() === localU.email.toLowerCase()
+          );
+          if (!existsInCloud) {
+            mergedUsers.push(localU);
             hasNewLocalUsers = true;
           }
+        });
 
-          setUsers(mergedUsers);
-          localStorage.setItem("foxstock-users", JSON.stringify(mergedUsers));
-          setDbStatus("online");
-          setLastSyncTime(new Date().toLocaleTimeString());
-
-          if (hasNewLocalUsers) {
-            await pushUsersToCloud(mergedUsers);
-          }
-        } else {
-          // Database is empty or uninitialized - seed local cache list
-          const savedUsers = localStorage.getItem("foxstock-users");
-          const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
-          setDbStatus("online");
-          setLastSyncTime(new Date().toLocaleTimeString());
-          await pushUsersToCloud(localUsers.length > 0 ? localUsers : users);
+        // Ensure default admin exists
+        const adminExists = mergedUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
+        if (!adminExists) {
+          const defaultAdmin = {
+            email: "admin@foxstock.com",
+            password: "admin123",
+            role: "admin",
+            status: "active",
+            verificationCode: "",
+            blocked: false,
+            favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
+            alerts: [],
+            triggeredAlerts: []
+          };
+          mergedUsers.unshift(defaultAdmin);
+          hasNewLocalUsers = true;
         }
+
+        setUsers(mergedUsers);
+        localStorage.setItem("foxstock-users", JSON.stringify(mergedUsers));
+        setDbStatus("online");
+        setLastSyncTime(new Date().toLocaleTimeString());
+
+        if (hasNewLocalUsers) {
+          await pushUsersToCloud(mergedUsers);
+        }
+      } else if (res.status === 404) {
+        // Database key is not found (uninitialized) - seed local cache list
+        const savedUsers = localStorage.getItem("foxstock-users");
+        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
+        setDbStatus("online");
+        setLastSyncTime(new Date().toLocaleTimeString());
+        await pushUsersToCloud(localUsers.length > 0 ? localUsers : users);
       } else {
         setDbStatus("error");
       }
@@ -201,13 +198,9 @@ export default function App() {
 
   const pushUsersToCloud = async (nextUsers) => {
     try {
-      const value = JSON.stringify(nextUsers);
-      const encoded = toBase64Url(value);
-      // POST directly as a CORS-safe Simple Request with dummy body and omitted credentials
-      await fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/foxstock_cloud_registry_v1/users_list/${encoded}`, {
+      await fetch("https://setget.net/set/foxstock_users_registry_2026_v1", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "updated=true",
+        body: JSON.stringify(nextUsers),
         credentials: "omit"
       });
     } catch (e) {
@@ -1318,7 +1311,7 @@ export default function App() {
             onSyncDatabase={syncUsersFromCloud}
             dbStatus={dbStatus}
             lastSyncTime={lastSyncTime}
-            dbKey="foxstock_cloud_registry_v1"
+            dbKey="foxstock_users_registry_2026_v1"
           />
         )}
       </main>
