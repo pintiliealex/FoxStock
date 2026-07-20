@@ -227,18 +227,18 @@ export default function App() {
   // Auth Functions
   const handleRegister = async (email, password, verificationCode) => {
     try {
-      const { data: existingUser, error: checkError } = await supabase
-        .from('foxstock_users')
-        .select('email')
-        .eq('email', email.toLowerCase())
-        .maybeSingle();
+      // 1. Sign up user in Supabase Auth
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.toLowerCase(),
+        password: password
+      });
 
-      if (checkError) throw checkError;
-      if (existingUser) return false;
+      if (signUpError) throw signUpError;
 
+      // 2. Create the associated profile row in public.foxstock_users
       const newUser = {
         email: email.toLowerCase(),
-        password,
+        password: "(managed)",
         role: "user",
         status: "pending",
         verification_code: verificationCode,
@@ -264,15 +264,16 @@ export default function App() {
 
   const handleVerifyCode = async (email, code) => {
     try {
-      const { data, error: selectError } = await supabase
-        .from('foxstock_users')
-        .select('*')
-        .eq('email', email.toLowerCase())
-        .maybeSingle();
+      // Verify OTP code natively through Supabase Auth
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: email.toLowerCase(),
+        token: code,
+        type: 'signup'
+      });
 
-      if (selectError) throw selectError;
-      if (!data || data.verification_code !== code) return false;
+      if (verifyError) throw verifyError;
 
+      // Update local profile status
       const { error: updateError } = await supabase
         .from('foxstock_users')
         .update({ status: "active", verification_code: "" })
@@ -290,23 +291,12 @@ export default function App() {
 
   const handleForgotPassword = async (email, tempPass) => {
     try {
-      const { data, error: selectError } = await supabase
-        .from('foxstock_users')
-        .select('email')
-        .eq('email', email.toLowerCase())
-        .maybeSingle();
+      // Triggers native Supabase reset password email flow
+      const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase(), {
+        redirectTo: window.location.origin
+      });
 
-      if (selectError) throw selectError;
-      if (!data) return false;
-
-      const { error: updateError } = await supabase
-        .from('foxstock_users')
-        .update({ password: tempPass })
-        .eq('email', email.toLowerCase());
-
-      if (updateError) throw updateError;
-
-      await syncUsersFromCloud();
+      if (error) throw error;
       return true;
     } catch (e) {
       console.error("Forgot password error:", e);
@@ -316,6 +306,17 @@ export default function App() {
 
   const handleLogin = async (email, password) => {
     try {
+      // Authenticate natively using Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase(),
+        password: password
+      });
+
+      if (authError) {
+        return { error: authError.message };
+      }
+
+      // Fetch user profile properties from public.foxstock_users
       const { data, error } = await supabase
         .from('foxstock_users')
         .select('*')
@@ -323,22 +324,24 @@ export default function App() {
         .maybeSingle();
 
       if (error) throw error;
-      if (!data || data.password !== password) {
-        return { error: "Invalid email or password." };
-      }
 
-      if (data.blocked) {
+      if (data && data.blocked) {
+        // Sign out if blocked
+        await supabase.auth.signOut();
         return { error: "Your account has been blocked by an administrator." };
       }
 
-      if (data.status === "pending") {
-        return { error: "Please verify your email address to activate your account." };
-      }
-
       const formattedUser = {
-        ...data,
-        verificationCode: data.verification_code || "",
-        triggeredAlerts: data.triggered_alerts || []
+        ...(data || {
+          email: email.toLowerCase(),
+          role: "user",
+          status: "active",
+          favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
+          alerts: [],
+          triggered_alerts: []
+        }),
+        verificationCode: (data && data.verification_code) || "",
+        triggeredAlerts: (data && data.triggered_alerts) || []
       };
 
       setCurrentUser(formattedUser);
@@ -350,7 +353,12 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.warn("Sign out error:", e);
+    }
     setCurrentUser(null);
     localStorage.removeItem("foxstock-current-user");
     setActiveTab("dashboard");
@@ -368,11 +376,6 @@ export default function App() {
       return;
     }
 
-    if (oldPassInput !== currentUser.password) {
-      setPassModalError("Incorrect current password.");
-      return;
-    }
-
     if (newPassInput !== confirmNewPassInput) {
       setPassModalError("New passwords do not match.");
       return;
@@ -384,14 +387,25 @@ export default function App() {
     }
 
     try {
-      const { error } = await supabase
-        .from('foxstock_users')
-        .update({ password: newPassInput })
-        .eq('email', currentUser.email.toLowerCase());
+      // Validate current password by attempting a temporary sign-in check
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: currentUser.email,
+        password: oldPassInput
+      });
+
+      if (verifyError) {
+        setPassModalError("Incorrect current password.");
+        return;
+      }
+
+      // Update password natively in Supabase Auth
+      const { error } = await supabase.auth.updateUser({
+        password: newPassInput
+      });
 
       if (error) throw error;
 
-      const updatedUser = { ...currentUser, password: newPassInput };
+      const updatedUser = { ...currentUser, password: "(managed)" };
       setCurrentUser(updatedUser);
       localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
 
