@@ -7,6 +7,7 @@ import Auth from "./components/Auth";
 import SmartBuy from "./components/SmartBuy";
 import AdminPanel from "./components/AdminPanel";
 import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock } from "lucide-react";
+import { supabase } from "./supabaseClient";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -14,29 +15,8 @@ export default function App() {
   const [stocks, setStocks] = useState(INITIAL_STOCKS);
   const [indices, setIndices] = useState(MOCK_INDICES);
   
-  // Seed Database of users (Admin pre-seeded)
-  const [users, setUsers] = useState(() => {
-    const savedUsers = localStorage.getItem("foxstock-users");
-    const parsed = savedUsers ? JSON.parse(savedUsers) : [];
-    const adminExists = parsed.some(u => u.email.toLowerCase() === "admin@foxstock.com");
-    if (!adminExists) {
-      const defaultAdmin = {
-        email: "admin@foxstock.com",
-        password: "admin123",
-        role: "admin",
-        status: "active",
-        verificationCode: "",
-        blocked: false,
-        favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-        alerts: [],
-        triggeredAlerts: []
-      };
-      const newUsers = [defaultAdmin, ...parsed];
-      localStorage.setItem("foxstock-users", JSON.stringify(newUsers));
-      return newUsers;
-    }
-    return parsed;
-  });
+  // Seed Database of users from Supabase on mount
+  const [users, setUsers] = useState([]);
 
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem("foxstock-current-user");
@@ -116,96 +96,52 @@ export default function App() {
     return new TextDecoder().decode(bytes);
   };
 
-  // Cloud Database Sync helpers (uses setget.net CORS-friendly public KV store)
+  // Cloud Database Sync helpers (uses Supabase public.foxstock_users table)
   const syncUsersFromCloud = async () => {
     setDbStatus("syncing");
     try {
-      const res = await fetch(`https://setget.net/get/foxstock_users_registry_2026_v1?cb=${Date.now()}`, {
-        credentials: "omit"
-      });
+      const { data, error } = await supabase
+        .from('foxstock_users')
+        .select('*');
       
-      if (res.ok) {
-        const text = await res.text();
-        const parsed = JSON.parse(text);
-        const cloudValue = parsed.value;
-        
-        let cloudUsers = [];
-        if (Array.isArray(cloudValue)) {
-          cloudUsers = cloudValue;
-        } else if (cloudValue && Array.isArray(cloudValue.users)) {
-          cloudUsers = cloudValue.users;
-        }
-        
-        // Fetch local cache
-        const savedUsers = localStorage.getItem("foxstock-users");
-        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
+      if (error) throw error;
 
-        // MERGE LOGIC: Combine cloud and local users by unique email (case-insensitive)
-        const mergedUsers = [...cloudUsers];
-        let hasNewLocalUsers = false;
+      if (data) {
+        // Map database attributes back to local state names
+        const formattedUsers = data.map(dbRow => ({
+          ...dbRow,
+          verificationCode: dbRow.verification_code || "",
+          triggeredAlerts: dbRow.triggered_alerts || []
+        }));
 
-        localUsers.forEach((localU) => {
-          const existsInCloud = mergedUsers.some(
-            (cloudU) => cloudU.email.toLowerCase() === localU.email.toLowerCase()
-          );
-          if (!existsInCloud) {
-            mergedUsers.push(localU);
-            hasNewLocalUsers = true;
+        setUsers(formattedUsers);
+        setDbStatus("online");
+        setLastSyncTime(new Date().toLocaleTimeString());
+
+        // Sync local current user session if active
+        if (currentUser) {
+          const freshCurrentUser = formattedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+          if (freshCurrentUser) {
+            if (freshCurrentUser.blocked) {
+              handleLogout();
+              return;
+            }
+            setFavorites(freshCurrentUser.favorites || []);
+            setAlerts(freshCurrentUser.alerts || []);
+            setTriggeredAlertLogs(freshCurrentUser.triggeredAlerts || []);
+            setCurrentUser(freshCurrentUser);
+            localStorage.setItem("foxstock-current-user", JSON.stringify(freshCurrentUser));
           }
-        });
-
-        // Ensure default admin exists
-        const adminExists = mergedUsers.some(u => u.email.toLowerCase() === "admin@foxstock.com");
-        if (!adminExists) {
-          const defaultAdmin = {
-            email: "admin@foxstock.com",
-            password: "admin123",
-            role: "admin",
-            status: "active",
-            verificationCode: "",
-            blocked: false,
-            favorites: ["AAPL", "MSFT", "TSLA", "NVDA"],
-            alerts: [],
-            triggeredAlerts: []
-          };
-          mergedUsers.unshift(defaultAdmin);
-          hasNewLocalUsers = true;
         }
-
-        setUsers(mergedUsers);
-        localStorage.setItem("foxstock-users", JSON.stringify(mergedUsers));
-        setDbStatus("online");
-        setLastSyncTime(new Date().toLocaleTimeString());
-
-        if (hasNewLocalUsers) {
-          await pushUsersToCloud(mergedUsers);
-        }
-      } else if (res.status === 404) {
-        // Database key is not found (uninitialized) - seed local cache list
-        const savedUsers = localStorage.getItem("foxstock-users");
-        const localUsers = savedUsers ? JSON.parse(savedUsers) : [];
-        setDbStatus("online");
-        setLastSyncTime(new Date().toLocaleTimeString());
-        await pushUsersToCloud(localUsers.length > 0 ? localUsers : users);
-      } else {
-        setDbStatus("error");
       }
     } catch (e) {
-      console.warn("Failed to sync user records from cloud:", e);
+      console.warn("Failed to sync from Supabase:", e);
       setDbStatus("error");
     }
   };
 
   const pushUsersToCloud = async (nextUsers) => {
-    try {
-      await fetch("https://setget.net/set/foxstock_users_registry_2026_v1", {
-        method: "POST",
-        body: JSON.stringify(nextUsers),
-        credentials: "omit"
-      });
-    } catch (e) {
-      console.warn("Failed to push user records to cloud:", e);
-    }
+    // Legacy helper; Supabase operations now perform inline writes directly
   };
 
   // Sync cloud database on mount and every 10 seconds to pull registrations from mobile/other devices
@@ -290,96 +226,128 @@ export default function App() {
 
   // Auth Functions
   const handleRegister = async (email, password, verificationCode) => {
-    await syncUsersFromCloud();
-    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    
-    const exists = savedUsers.some((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (exists) return false;
+    try {
+      const { data: existingUser, error: checkError } = await supabase
+        .from('foxstock_users')
+        .select('email')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
 
-    const newUser = {
-      email,
-      password,
-      role: "user",
-      status: "pending",
-      verificationCode,
-      blocked: false,
-      favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
-      alerts: [],
-      triggeredAlerts: []
-    };
+      if (checkError) throw checkError;
+      if (existingUser) return false;
 
-    const nextUsers = [...savedUsers, newUser];
-    setUsers(nextUsers);
-    localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-    await pushUsersToCloud(nextUsers);
-    return true;
+      const newUser = {
+        email: email.toLowerCase(),
+        password,
+        role: "user",
+        status: "pending",
+        verification_code: verificationCode,
+        blocked: false,
+        favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
+        alerts: [],
+        triggered_alerts: []
+      };
+
+      const { error: insertError } = await supabase
+        .from('foxstock_users')
+        .insert([newUser]);
+
+      if (insertError) throw insertError;
+
+      await syncUsersFromCloud();
+      return true;
+    } catch (e) {
+      console.error("Register error:", e);
+      return false;
+    }
   };
 
   const handleVerifyCode = async (email, code) => {
-    await syncUsersFromCloud();
-    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    
-    let verified = false;
-    const nextUsers = savedUsers.map((u) => {
-      if (u.email.toLowerCase() === email.toLowerCase() && u.verificationCode === code) {
-        verified = true;
-        return { ...u, status: "active", verificationCode: "" };
-      }
-      return u;
-    });
+    try {
+      const { data, error: selectError } = await supabase
+        .from('foxstock_users')
+        .select('*')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
 
-    if (verified) {
-      setUsers(nextUsers);
-      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      await pushUsersToCloud(nextUsers);
+      if (selectError) throw selectError;
+      if (!data || data.verification_code !== code) return false;
+
+      const { error: updateError } = await supabase
+        .from('foxstock_users')
+        .update({ status: "active", verification_code: "" })
+        .eq('email', email.toLowerCase());
+
+      if (updateError) throw updateError;
+
+      await syncUsersFromCloud();
+      return true;
+    } catch (e) {
+      console.error("Verify code error:", e);
+      return false;
     }
-    return verified;
   };
 
   const handleForgotPassword = async (email, tempPass) => {
-    await syncUsersFromCloud();
-    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-    
-    let success = false;
-    const nextUsers = savedUsers.map((u) => {
-      if (u.email.toLowerCase() === email.toLowerCase()) {
-        success = true;
-        return { ...u, password: tempPass };
-      }
-      return u;
-    });
+    try {
+      const { data, error: selectError } = await supabase
+        .from('foxstock_users')
+        .select('email')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
 
-    if (success) {
-      setUsers(nextUsers);
-      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      await pushUsersToCloud(nextUsers);
+      if (selectError) throw selectError;
+      if (!data) return false;
+
+      const { error: updateError } = await supabase
+        .from('foxstock_users')
+        .update({ password: tempPass })
+        .eq('email', email.toLowerCase());
+
+      if (updateError) throw updateError;
+
+      await syncUsersFromCloud();
+      return true;
+    } catch (e) {
+      console.error("Forgot password error:", e);
+      return false;
     }
-    return success;
   };
 
   const handleLogin = async (email, password) => {
-    await syncUsersFromCloud();
-    const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+    try {
+      const { data, error } = await supabase
+        .from('foxstock_users')
+        .select('*')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
 
-    const foundUser = savedUsers.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase()
-    );
+      if (error) throw error;
+      if (!data || data.password !== password) {
+        return { error: "Invalid email or password." };
+      }
 
-    if (!foundUser || foundUser.password !== password) {
-      return { error: "Invalid email or password." };
+      if (data.blocked) {
+        return { error: "Your account has been blocked by an administrator." };
+      }
+
+      if (data.status === "pending") {
+        return { error: "Please verify your email address to activate your account." };
+      }
+
+      const formattedUser = {
+        ...data,
+        verificationCode: data.verification_code || "",
+        triggeredAlerts: data.triggered_alerts || []
+      };
+
+      setCurrentUser(formattedUser);
+      localStorage.setItem("foxstock-current-user", JSON.stringify(formattedUser));
+      return { success: true };
+    } catch (e) {
+      console.error("Login error:", e);
+      return { error: "Failed to connect to authentication server." };
     }
-
-    if (foundUser.blocked) {
-      return { error: "Your account has been blocked by an administrator." };
-    }
-
-    if (foundUser.status === "pending") {
-      return { error: "Please verify your email address to activate your account." };
-    }
-
-    setCurrentUser(foundUser);
-    localStorage.setItem("foxstock-current-user", JSON.stringify(foundUser));
-    return { success: true };
   };
 
   const handleLogout = () => {
@@ -416,17 +384,18 @@ export default function App() {
     }
 
     try {
-      await syncUsersFromCloud();
-      const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
+      const { error } = await supabase
+        .from('foxstock_users')
+        .update({ password: newPassInput })
+        .eq('email', currentUser.email.toLowerCase());
+
+      if (error) throw error;
 
       const updatedUser = { ...currentUser, password: newPassInput };
       setCurrentUser(updatedUser);
       localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
 
-      const nextUsers = savedUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
-      setUsers(nextUsers);
-      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      await pushUsersToCloud(nextUsers);
+      await syncUsersFromCloud();
 
       setPassModalSuccess("Password changed successfully!");
       setOldPassInput("");
@@ -438,29 +407,49 @@ export default function App() {
         setPassModalSuccess("");
       }, 1500);
     } catch (err) {
-      setPassModalError("Failed to update password in cloud database.");
+      setPassModalError("Failed to update password in database.");
     }
   };
 
   // Helper database synchronizer (avoids infinite loops)
-  const syncPreferencesToDb = (nextFavorites, nextAlerts, nextTriggeredAlerts) => {
+  const syncPreferencesToDb = async (nextFavorites, nextAlerts, nextTriggeredAlerts) => {
     if (!currentUser) return;
-    const updatedUser = { 
-      ...currentUser, 
-      favorites: nextFavorites || favorites, 
-      alerts: nextAlerts || alerts,
-      triggeredAlerts: nextTriggeredAlerts || triggeredAlertLogs
-    };
     
-    setCurrentUser(updatedUser);
-    localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+    const favs = nextFavorites || favorites;
+    const alts = nextAlerts || alerts;
+    const trig = nextTriggeredAlerts || triggeredAlertLogs;
 
-    setUsers((prevUsers) => {
-      const nextUsers = prevUsers.map((u) => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
-      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      pushUsersToCloud(nextUsers);
-      return nextUsers;
-    });
+    try {
+      const { error } = await supabase
+        .from('foxstock_users')
+        .update({
+          favorites: favs,
+          alerts: alts,
+          triggered_alerts: trig
+        })
+        .eq('email', currentUser.email.toLowerCase());
+
+      if (error) throw error;
+
+      const updatedUser = { 
+        ...currentUser, 
+        favorites: favs, 
+        alerts: alts,
+        triggeredAlerts: trig
+      };
+      
+      setCurrentUser(updatedUser);
+      localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
+      
+      setUsers(prev => prev.map(u => u.email.toLowerCase() === currentUser.email.toLowerCase() ? {
+        ...u,
+        favorites: favs,
+        alerts: alts,
+        triggeredAlerts: trig
+      } : u));
+    } catch (e) {
+      console.warn("Failed to sync preferences to Supabase:", e);
+    }
   };
 
   // Admin Actions
@@ -468,24 +457,21 @@ export default function App() {
     if (email.toLowerCase() === "admin@foxstock.com") return;
     
     try {
+      const userToToggle = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (!userToToggle) return;
+
+      const newBlockedStatus = !userToToggle.blocked;
+
+      const { error } = await supabase
+        .from('foxstock_users')
+        .update({ blocked: newBlockedStatus })
+        .eq('email', email.toLowerCase());
+
+      if (error) throw error;
+
       await syncUsersFromCloud();
-      const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-
-      const nextUsers = savedUsers.map((u) => 
-        u.email.toLowerCase() === email.toLowerCase() ? { ...u, blocked: !u.blocked } : u
-      );
-      
-      setUsers(nextUsers);
-      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      await pushUsersToCloud(nextUsers);
-
-      // Force logout if blocked
-      const checkBlocked = nextUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-      if (checkBlocked && checkBlocked.blocked && currentUser?.email.toLowerCase() === email.toLowerCase()) {
-        handleLogout();
-      }
     } catch (e) {
-      console.error("Toggle block sync error:", e);
+      console.error("Toggle block error:", e);
     }
   };
 
@@ -493,18 +479,21 @@ export default function App() {
     if (email.toLowerCase() === "admin@foxstock.com") return;
     
     try {
+      const userToToggle = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (!userToToggle) return;
+
+      const newRole = userToToggle.role === "admin" ? "user" : "admin";
+
+      const { error } = await supabase
+        .from('foxstock_users')
+        .update({ role: newRole })
+        .eq('email', email.toLowerCase());
+
+      if (error) throw error;
+
       await syncUsersFromCloud();
-      const savedUsers = JSON.parse(localStorage.getItem("foxstock-users") || "[]");
-
-      const nextUsers = savedUsers.map((u) => 
-        u.email.toLowerCase() === email.toLowerCase() ? { ...u, role: u.role === "admin" ? "user" : "admin" } : u
-      );
-
-      setUsers(nextUsers);
-      localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-      await pushUsersToCloud(nextUsers);
     } catch (e) {
-      console.error("Toggle role sync error:", e);
+      console.error("Toggle role error:", e);
     }
   };
 
@@ -566,20 +555,7 @@ export default function App() {
             const nextLogs = [...triggeredAlerts, ...prevLogs];
             
             if (currentUser) {
-              const updatedUser = { 
-                ...currentUser, 
-                favorites,
-                alerts: nextAlerts,
-                triggeredAlerts: nextLogs
-              };
-              setCurrentUser(updatedUser);
-              localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
-              setUsers((prevUsers) => {
-                const nextUsers = prevUsers.map(u => u.email.toLowerCase() === currentUser.email.toLowerCase() ? updatedUser : u);
-                localStorage.setItem("foxstock-users", JSON.stringify(nextUsers));
-                pushUsersToCloud(nextUsers);
-                return nextUsers;
-              });
+              syncPreferencesToDb(favorites, nextAlerts, nextLogs);
             }
             return nextLogs;
           });
