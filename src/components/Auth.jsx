@@ -172,9 +172,37 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          
-          {authMode !== "verify" && (
+        {authMode === "verify" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "center", textAlign: "center", padding: "10px 0" }}>
+            <div style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "50%",
+              backgroundColor: "rgba(59, 130, 246, 0.1)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--color-primary)",
+              marginBottom: "8px"
+            }}>
+              <Mail size={24} />
+            </div>
+            <span style={{ fontSize: "1rem", fontWeight: "600" }}>Check your inbox</span>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: "1.5" }}>
+              We have sent an activation link to <strong>{pendingEmail || email}</strong>. Please click the link to confirm and activate your account.
+            </p>
+            <button 
+              type="button"
+              className="btn-primary"
+              onClick={() => { setAuthMode("login"); setError(""); }}
+              style={{ width: "100%", justifyContent: "center", padding: "12px", fontSize: "0.9rem", borderRadius: "8px", marginTop: "12px" }}
+            >
+              Go to Sign In
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: "500", textAlign: "left" }}>
                 Email Address
@@ -199,106 +227,78 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
                 />
               </div>
             </div>
-          )}
 
-          {(authMode === "login" || authMode === "register") && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: "500", textAlign: "left" }}>
-                Password
-              </label>
-              <div style={{ position: "relative" }}>
-                <Lock size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
-                <input 
-                  type="password" 
-                  placeholder="••••••••" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px 10px 36px",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-glass)",
-                    backgroundColor: "rgba(255,255,255,0.02)",
-                    color: "var(--text-primary)",
-                    outline: "none",
-                    fontSize: "0.9rem"
-                  }}
-                />
+            {(authMode === "login" || authMode === "register") && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: "500", textAlign: "left" }}>
+                  Password
+                </label>
+                <div style={{ position: "relative" }}>
+                  <Lock size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+                  <input 
+                    type="password" 
+                    placeholder="••••••••" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px 10px 36px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-glass)",
+                      backgroundColor: "rgba(255,255,255,0.02)",
+                      color: "var(--text-primary)",
+                      outline: "none",
+                      fontSize: "0.9rem"
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {authMode === "register" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: "500", textAlign: "left" }}>
-                Confirm Password
-              </label>
-              <div style={{ position: "relative" }}>
-                <Lock size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
-                <input 
-                  type="password" 
-                  placeholder="••••••••" 
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px 10px 36px",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-glass)",
-                    backgroundColor: "rgba(255,255,255,0.02)",
-                    color: "var(--text-primary)",
-                    outline: "none",
-                    fontSize: "0.9rem"
-                  }}
-                />
+            {authMode === "register" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: "500", textAlign: "left" }}>
+                  Confirm Password
+                </label>
+                <div style={{ position: "relative" }}>
+                  <Lock size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+                  <input 
+                    type="password" 
+                    placeholder="••••••••" 
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px 10px 36px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-glass)",
+                      backgroundColor: "rgba(255,255,255,0.02)",
+                      color: "var(--text-primary)",
+                      outline: "none",
+                      fontSize: "0.9rem"
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {authMode === "verify" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: "500", textAlign: "left" }}>
-                Activation Code
-              </label>
-              <div style={{ position: "relative" }}>
-                <Key size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
-                <input 
-                  type="text" 
-                  placeholder="123456" 
-                  value={verificationInput}
-                  onChange={(e) => setVerificationInput(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px 10px 36px",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-glass)",
-                    backgroundColor: "rgba(255,255,255,0.02)",
-                    color: "var(--text-primary)",
-                    outline: "none",
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-          <button 
-            type="submit" 
-            className="btn-primary" 
-            style={{ 
-              width: "100%", 
-              justifyContent: "center", 
-              padding: "12px", 
-              fontSize: "0.9rem",
-              borderRadius: "8px"
-            }}
-          >
-            {authMode === "login" && <><LogIn size={16} /> Sign In</>}
-            {authMode === "register" && <><UserPlus size={16} /> Register</>}
-            {authMode === "verify" && <><Check size={16} /> Activate Account</>}
-            {authMode === "forgot" && <><Sparkles size={16} /> Send Temp Password</>}
-          </button>
-        </form>
+            <button 
+              type="submit" 
+              className="btn-primary" 
+              style={{ 
+                width: "100%", 
+                justifyContent: "center", 
+                padding: "12px", 
+                fontSize: "0.9rem",
+                borderRadius: "8px"
+              }}
+            >
+              {authMode === "login" && <><LogIn size={16} /> Sign In</>}
+              {authMode === "register" && <><UserPlus size={16} /> Register</>}
+              {authMode === "forgot" && <><Sparkles size={16} /> Send Temp Password</>}
+            </button>
+          </form>
+        )}
 
         {authMode === "login" && (
           <div style={{ textAlign: "right", marginTop: "-8px" }}>
