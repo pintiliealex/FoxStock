@@ -218,7 +218,7 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [currentUser]);
+  }, []);
 
 
   // Sync state on user login/switch
