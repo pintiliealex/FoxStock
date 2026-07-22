@@ -22,9 +22,12 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
         setError("Please enter your email and password.");
         return;
       }
-      const res = onLogin(email, password);
+      const res = await onLogin(email, password);
       if (res.error) {
-        setError(res.error);
+        const errorMsg = (res.error === "{}" || !res.error)
+          ? "Failed to connect to the authentication server. Please check your network connection."
+          : res.error;
+        setError(errorMsg);
       }
     } 
     
@@ -45,8 +48,10 @@ export default function Auth({ onLogin, onRegister, onVerifyCode, onForgotPasswo
       // Generate a mock code
       const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
       
-      const success = await onRegister(email, password, generatedCode);
-      if (!success) {
+      const result = await onRegister(email, password, generatedCode);
+      if (result && result.error) {
+        setError(result.error);
+      } else if (!result) {
         setError("An account with this email already exists.");
       } else {
         setPendingEmail(email);

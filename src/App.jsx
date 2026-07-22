@@ -300,7 +300,10 @@ export default function App() {
       // 1. Sign up user in Supabase Auth
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.toLowerCase(),
-        password: password
+        password: password,
+        options: {
+          redirectTo: window.location.origin
+        }
       });
 
       if (signUpError) throw signUpError;
@@ -325,10 +328,10 @@ export default function App() {
       if (insertError) throw insertError;
 
       await syncUsersFromCloud();
-      return true;
+      return { success: true };
     } catch (e) {
       console.error("Register error:", e);
-      return false;
+      return { error: e.message || "Registration failed." };
     }
   };
 
@@ -383,7 +386,10 @@ export default function App() {
       });
 
       if (authError) {
-        return { error: authError.message };
+        const errorMsg = (authError.message === "{}" || !authError.message)
+          ? "Failed to connect to the authentication server. Please check your network connection."
+          : authError.message;
+        return { error: errorMsg };
       }
 
       // Fetch user profile properties from public.foxstock_users
