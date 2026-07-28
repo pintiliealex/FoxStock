@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { INITIAL_STOCKS, MOCK_INDICES, AVAILABLE_INDICATORS } from "./data/mockStocks";
+import { INITIAL_STOCKS, MOCK_INDICES, AVAILABLE_INDICATORS, DEFAULT_WATCHLIST_SYMBOLS } from "./data/mockStocks";
 import Dashboard from "./components/Dashboard";
 import Watchlist from "./components/Watchlist";
 import AlertsHub from "./components/AlertsHub";
@@ -7,7 +7,8 @@ import Auth from "./components/Auth";
 import SmartBuy from "./components/SmartBuy";
 import AdminPanel from "./components/AdminPanel";
 import Portfolio from "./components/Portfolio";
-import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock, Briefcase } from "lucide-react";
+import News from "./components/News";
+import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock, Briefcase, Newspaper } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 export default function App() {
@@ -330,7 +331,7 @@ export default function App() {
         status: "pending",
         verification_code: verificationCode,
         blocked: false,
-        favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
+        favorites: DEFAULT_WATCHLIST_SYMBOLS,
         alerts: [],
         triggered_alerts: []
       };
@@ -426,7 +427,7 @@ export default function App() {
           email: email.toLowerCase(),
           role: "user",
           status: "active",
-          favorites: ["AAPL", "MSFT", "TSLA", "NFLX"],
+          favorites: DEFAULT_WATCHLIST_SYMBOLS,
           alerts: [],
           triggered_alerts: []
         }),
@@ -1228,6 +1229,13 @@ export default function App() {
           >
             <Briefcase size={14} /> Portfolio
           </button>
+          <button 
+            className={activeTab === "news" ? "btn-primary" : "btn-secondary"} 
+            onClick={() => setActiveTab("news")}
+            style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
+          >
+            <Newspaper size={14} /> News
+          </button>
           
           {/* Admin panel tab */}
           {isAdmin && (
@@ -1354,6 +1362,7 @@ export default function App() {
             indices={indices}
             favorites={favorites}
             alerts={alerts}
+            portfolio={portfolio}
           />
         )}
 
@@ -1397,6 +1406,12 @@ export default function App() {
             portfolio={portfolio}
             onUpdatePortfolio={handleUpdatePortfolio}
             indices={indices}
+          />
+        )}
+
+        {activeTab === "news" && (
+          <News 
+            portfolio={portfolio}
           />
         )}
 

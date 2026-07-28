@@ -1,17 +1,32 @@
-import { TrendingUp, Bell, Star, ArrowUpRight, ArrowDownRight, Activity, ShieldAlert, Cpu, BrainCircuit } from "lucide-react";
+import React from "react";
+import { TrendingUp, Bell, Star, ArrowUpRight, ArrowDownRight, Activity, ShieldAlert, Cpu, BrainCircuit, Briefcase, Newspaper } from "lucide-react";
 
 export default function Dashboard({ 
   onNavigate, 
   stocks, 
   indices, 
   favorites, 
-  alerts 
+  alerts,
+  portfolio = []
 }) {
   const activeAlertsCount = alerts.filter(a => a.active).length;
   
   // Calculate top performing stock today
   const topStock = [...stocks].sort((a, b) => b.changePercent - a.changePercent)[0];
   const strongBuysCount = stocks.filter(s => s.ratingScore >= 4.5).length;
+
+  // Filter stocks matching watchlist + portfolio, or fallback to all stocks if empty
+  const watchlistSymbols = favorites || [];
+  const portfolioSymbols = portfolio.map(p => p.symbol);
+  const userAssetSymbols = Array.from(new Set([...watchlistSymbols, ...portfolioSymbols]));
+
+  const targetStocks = userAssetSymbols.length > 0
+    ? stocks.filter(s => userAssetSymbols.includes(s.symbol))
+    : stocks;
+
+  // Calculate top 5 gainers and losers
+  const sortedGainers = [...targetStocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 5);
+  const sortedLosers = [...targetStocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 5);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "32px", padding: "24px 0" }}>
@@ -88,6 +103,25 @@ export default function Dashboard({
           <div 
             className="glass-card-interactive" 
             style={{ padding: "32px", textAlign: "left", display: "flex", flexDirection: "column", gap: "16px" }}
+            onClick={() => onNavigate("portfolio")}
+          >
+            <div style={{ width: "48px", height: "48px", borderRadius: "12px", backgroundColor: "rgba(139, 92, 246, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Briefcase size={24} color="var(--color-primary)" />
+            </div>
+            <div>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: "600", marginBottom: "8px" }}>Portfolio Manager</h3>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: "1.5" }}>
+                Define your holdings, track real-time cost basis values, gains, sector weights, and run interactive AI risk analysis queries.
+              </p>
+            </div>
+            <div style={{ display: "flex", justifySelf: "flex-end", alignItems: "center", gap: "6px", color: "var(--color-primary)", fontWeight: "600", fontSize: "0.9rem", marginTop: "auto" }}>
+              Manage {portfolio.length} Positions <ArrowUpRight size={16} />
+            </div>
+          </div>
+
+          <div 
+            className="glass-card-interactive" 
+            style={{ padding: "32px", textAlign: "left", display: "flex", flexDirection: "column", gap: "16px" }}
             onClick={() => onNavigate("smart_buy")}
           >
             <div style={{ width: "48px", height: "48px", borderRadius: "12px", backgroundColor: "rgba(139, 92, 246, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -113,7 +147,7 @@ export default function Dashboard({
               <Bell size={24} color="var(--color-secondary)" />
             </div>
             <div>
-              <h3 style={{ fontSize: "1.2rem", fontWeight: "600", marginBottom: "8px" }}>Smart Alerts & AI Insights</h3>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: "600", marginBottom: "8px" }}>Price Alerts</h3>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: "1.5" }}>
                 Set limits on asset prices, customize triggers, and access qualitative AI stock ratings, reasons, and strong recommendations.
               </p>
@@ -123,7 +157,95 @@ export default function Dashboard({
             </div>
           </div>
 
+          <div 
+            className="glass-card-interactive" 
+            style={{ padding: "32px", textAlign: "left", display: "flex", flexDirection: "column", gap: "16px" }}
+            onClick={() => onNavigate("news")}
+          >
+            <div style={{ width: "48px", height: "48px", borderRadius: "12px", backgroundColor: "rgba(217, 70, 239, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Newspaper size={24} color="var(--color-secondary)" />
+            </div>
+            <div>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: "600", marginBottom: "8px" }}>Holdings Market News</h3>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: "1.5" }}>
+                Stay informed with the latest 10 news articles filtered specifically for the stock equities defined in your Portfolio.
+              </p>
+            </div>
+            <div style={{ display: "flex", justifySelf: "flex-end", alignItems: "center", gap: "6px", color: "var(--color-secondary)", fontWeight: "600", fontSize: "0.9rem", marginTop: "auto" }}>
+              Read Holdings News <ArrowUpRight size={16} />
+            </div>
+          </div>
+
         </div>
+      </div>
+
+      {/* Top Gainers & Losers Widgets */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "24px" }}>
+        
+        {/* Top Gainers Card */}
+        <div className="glass-panel" style={{ padding: "24px" }}>
+          <h3 style={{ fontSize: "1.15rem", fontWeight: "600", marginBottom: "16px", color: "var(--color-success)", display: "flex", alignItems: "center", gap: "8px" }}>
+            <ArrowUpRight size={20} /> Top Gainers Today
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {sortedGainers.map((stock) => (
+              <div key={stock.symbol} style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                  <span style={{ fontWeight: "700", color: "#fff", width: "55px", display: "inline-block", textAlign: "left" }}>{stock.symbol}</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{stock.name}</span>
+                </div>
+                
+                {/* Horizontal bar chart style */}
+                <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "10px", justifyContent: "flex-end" }}>
+                  <div style={{ width: "80px", height: "6px", backgroundColor: "rgba(255,255,255,0.05)", borderRadius: "3px", overflow: "hidden" }}>
+                    <div style={{ 
+                      height: "100%", 
+                      width: `${Math.min(100, Math.max(5, (stock.changePercent / (sortedGainers[0]?.changePercent || 1)) * 100))}%`, 
+                      backgroundColor: "var(--color-success)" 
+                    }} />
+                  </div>
+                  <span style={{ fontSize: "0.85rem", color: "var(--color-success)", fontWeight: "700", width: "60px", textAlign: "right" }}>
+                    +{stock.changePercent.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+            {sortedGainers.length === 0 && <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No asset data available.</span>}
+          </div>
+        </div>
+
+        {/* Top Losers Card */}
+        <div className="glass-panel" style={{ padding: "24px" }}>
+          <h3 style={{ fontSize: "1.15rem", fontWeight: "600", marginBottom: "16px", color: "var(--color-danger)", display: "flex", alignItems: "center", gap: "8px" }}>
+            <ArrowDownRight size={20} /> Top Losers Today
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {sortedLosers.map((stock) => (
+              <div key={stock.symbol} style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                  <span style={{ fontWeight: "700", color: "#fff", width: "55px", display: "inline-block", textAlign: "left" }}>{stock.symbol}</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{stock.name}</span>
+                </div>
+                
+                {/* Horizontal bar chart style */}
+                <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "10px", justifyContent: "flex-end" }}>
+                  <div style={{ width: "80px", height: "6px", backgroundColor: "rgba(255,255,255,0.05)", borderRadius: "3px", overflow: "hidden" }}>
+                    <div style={{ 
+                      height: "100%", 
+                      width: `${Math.min(100, Math.max(5, (Math.abs(stock.changePercent) / (Math.abs(sortedLosers[0]?.changePercent) || 1)) * 100))}%`, 
+                      backgroundColor: "var(--color-danger)" 
+                    }} />
+                  </div>
+                  <span style={{ fontSize: "0.85rem", color: "var(--color-danger)", fontWeight: "700", width: "60px", textAlign: "right" }}>
+                    {stock.changePercent.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+            {sortedLosers.length === 0 && <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No asset data available.</span>}
+          </div>
+        </div>
+
       </div>
 
       {/* Mini Stats Summary Strip */}
