@@ -24,6 +24,9 @@ export default function App() {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
+  const currentUserRef = React.useRef(currentUser);
+  currentUserRef.current = currentUser;
+
   const [dbStatus, setDbStatus] = useState("online");
   const [lastSyncTime, setLastSyncTime] = useState(() => new Date().toLocaleTimeString());
 
@@ -129,8 +132,8 @@ export default function App() {
         setLastSyncTime(new Date().toLocaleTimeString());
 
         // Sync local current user session if active
-        if (currentUser) {
-          const freshCurrentUser = formattedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+        if (currentUserRef.current) {
+          const freshCurrentUser = formattedUsers.find(u => u.email.toLowerCase() === currentUserRef.current.email.toLowerCase());
           if (freshCurrentUser) {
             if (freshCurrentUser.blocked) {
               handleLogout();
