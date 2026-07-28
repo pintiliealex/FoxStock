@@ -290,7 +290,7 @@ export default function Watchlist({
                     <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "0.85rem", textAlign: "left" }}>
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <span style={{ color: "var(--text-secondary)" }}>All-Time High</span>
-                        <span style={{ fontWeight: "600", color: "var(--color-success)" }}>${stock.ath ? stock.ath.toFixed(2) : (stock.price * 1.15).toFixed(2)}</span>
+                        <span style={{ fontWeight: "600", color: "var(--color-success)" }}>${(stock.ath || stock.high52 || stock.price).toFixed(2)}</span>
                       </div>
                       <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", alignSelf: "flex-end" }}>
                         Happened: {stock.athDate || "2024-07-15"}
