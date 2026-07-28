@@ -6,7 +6,8 @@ import AlertsHub from "./components/AlertsHub";
 import Auth from "./components/Auth";
 import SmartBuy from "./components/SmartBuy";
 import AdminPanel from "./components/AdminPanel";
-import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock } from "lucide-react";
+import Portfolio from "./components/Portfolio";
+import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock, Briefcase } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 export default function App() {
@@ -38,6 +39,14 @@ export default function App() {
   const [triggeredAlertLogs, setTriggeredAlertLogs] = useState(() => {
     if (currentUser) {
       return currentUser.triggeredAlerts || [];
+    }
+    return [];
+  });
+
+  // User Portfolio Holdings
+  const [portfolio, setPortfolio] = useState(() => {
+    if (currentUser) {
+      return currentUser.portfolio || [];
     }
     return [];
   });
@@ -111,7 +120,8 @@ export default function App() {
         const formattedUsers = data.map(dbRow => ({
           ...dbRow,
           verificationCode: dbRow.verification_code || "",
-          triggeredAlerts: dbRow.triggered_alerts || []
+          triggeredAlerts: dbRow.triggered_alerts || [],
+          portfolio: dbRow.portfolio || []
         }));
 
         setUsers(formattedUsers);
@@ -228,6 +238,7 @@ export default function App() {
       setFavorites(userFavs);
       setAlerts(currentUser.alerts || []);
       setTriggeredAlertLogs(currentUser.triggeredAlerts || []);
+      setPortfolio(currentUser.portfolio || []);
       
       // Ensure all favorites exist in the stocks array immediately!
       if (userFavs.length > 0) {
@@ -502,12 +513,13 @@ export default function App() {
   };
 
   // Helper database synchronizer (avoids infinite loops)
-  const syncPreferencesToDb = async (nextFavorites, nextAlerts, nextTriggeredAlerts) => {
+  const syncPreferencesToDb = async (nextFavorites, nextAlerts, nextTriggeredAlerts, nextPortfolio) => {
     if (!currentUser) return;
     
     const favs = nextFavorites || favorites;
     const alts = nextAlerts || alerts;
     const trig = nextTriggeredAlerts || triggeredAlertLogs;
+    const port = nextPortfolio || portfolio;
 
     try {
       const { error } = await supabase
@@ -515,7 +527,8 @@ export default function App() {
         .update({
           favorites: favs,
           alerts: alts,
-          triggered_alerts: trig
+          triggered_alerts: trig,
+          portfolio: port
         })
         .eq('email', currentUser.email.toLowerCase());
 
@@ -525,7 +538,8 @@ export default function App() {
         ...currentUser, 
         favorites: favs, 
         alerts: alts,
-        triggeredAlerts: trig
+        triggeredAlerts: trig,
+        portfolio: port
       };
       
       setCurrentUser(updatedUser);
@@ -535,11 +549,18 @@ export default function App() {
         ...u,
         favorites: favs,
         alerts: alts,
-        triggeredAlerts: trig
+        triggeredAlerts: trig,
+        portfolio: port
       } : u));
     } catch (e) {
       console.warn("Failed to sync preferences to Supabase:", e);
     }
+  };
+
+  // User Portfolio Actions
+  const handleUpdatePortfolio = (newPortfolio) => {
+    setPortfolio(newPortfolio);
+    syncPreferencesToDb(favorites, alerts, triggeredAlertLogs, newPortfolio);
   };
 
   // Admin Actions
@@ -648,15 +669,6 @@ export default function App() {
               syncPreferencesToDb(favorites, nextAlerts, nextLogs);
             }
             return nextLogs;
-          });
-
-          triggeredAlerts.forEach(log => {
-            const newNotification = {
-              id: log.id,
-              type: "danger",
-              text: `ALERT: ${log.symbol} price parameter met! Triggered value is $${log.triggerValue.toFixed(2)}.`
-            };
-            setNotifications((prev) => [newNotification, ...prev]);
           });
         }
       }
@@ -1204,7 +1216,14 @@ export default function App() {
             onClick={() => setActiveTab("alerts")}
             style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
           >
-            <Bell size={14} /> Alerts & AI
+            <Bell size={14} /> Price Alerts
+          </button>
+          <button 
+            className={activeTab === "portfolio" ? "btn-primary" : "btn-secondary"} 
+            onClick={() => setActiveTab("portfolio")}
+            style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
+          >
+            <Briefcase size={14} /> Portfolio
           </button>
           
           {/* Admin panel tab */}
@@ -1366,6 +1385,15 @@ export default function App() {
             onRemoveAlert={handleRemoveAlert}
             onToggleAlertStatus={handleToggleAlertStatus}
             onTriggerAIRatingUpdate={handleTriggerAIRatingUpdate}
+          />
+        )}
+
+        {activeTab === "portfolio" && (
+          <Portfolio 
+            stocks={stocks}
+            portfolio={portfolio}
+            onUpdatePortfolio={handleUpdatePortfolio}
+            indices={indices}
           />
         )}
 

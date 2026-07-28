@@ -334,3 +334,9 @@ h1 {
   85% { transform: rotate(-2deg); }
   100% { transform: rotate(0); }
 }
+
+/* Tooltip Hover Styles */
+.tooltip-container:hover .tooltip-text {
+  visibility: visible !important;
+  opacity: 1 !important;
+}

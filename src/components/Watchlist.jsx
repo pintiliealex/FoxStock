@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Star, Plus, Trash2, Settings2, BarChart2, StarOff, ArrowUpRight, ArrowDownRight, Search } from "lucide-react";
+import { Star, Plus, Trash2, Settings2, BarChart2, StarOff, ArrowUpRight, ArrowDownRight, Search, Info } from "lucide-react";
 import Sparkline from "./Sparkline";
 import { AVAILABLE_INDICATORS } from "../data/mockStocks";
 
@@ -101,31 +101,65 @@ export default function Watchlist({
     );
   };
 
-  // Helper to render quarterly revenue mini chart
+  // Helper to render quarterly revenue YoY comparison chart
   const renderRevenue = (stock) => {
+    if (!stock.quarterlyRevenue || stock.quarterlyRevenue.length < 8) return null;
     const maxRev = Math.max(...stock.quarterlyRevenue.map((r) => r.revenue));
 
+    const pairs = [
+      { label: "Q2", prev: stock.quarterlyRevenue[0], curr: stock.quarterlyRevenue[4] },
+      { label: "Q3", prev: stock.quarterlyRevenue[1], curr: stock.quarterlyRevenue[5] },
+      { label: "Q4", prev: stock.quarterlyRevenue[2], curr: stock.quarterlyRevenue[6] },
+      { label: "Q1", prev: stock.quarterlyRevenue[3], curr: stock.quarterlyRevenue[7] }
+    ];
+
     return (
-      <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", height: "55px", marginTop: "8px" }}>
-        {stock.quarterlyRevenue.map((rev) => {
-          const heightPercent = (rev.revenue / maxRev) * 100;
+      <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", height: "70px", marginTop: "8px" }}>
+        {pairs.map((pair, pIdx) => {
+          const prevPct = (pair.prev.revenue / maxRev) * 100;
+          const currPct = (pair.curr.revenue / maxRev) * 100;
+          const prevYear = pair.prev.quarter.split(" ")[1] || "24";
+          const currYear = pair.curr.quarter.split(" ")[1] || "25";
+
           return (
-            <div key={rev.quarter} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-              <span style={{ fontSize: "0.65rem", color: "var(--text-primary)", fontWeight: "600", marginBottom: "2px" }}>
-                ${rev.revenue.toFixed(1)}B
-              </span>
-              <div 
-                style={{ 
-                  width: "100%", 
-                  height: `${Math.max(4, heightPercent * 0.25)}px`, 
-                  background: "linear-gradient(to top, var(--color-primary), var(--color-secondary))",
-                  borderRadius: "2px",
-                  position: "relative"
-                }} 
-                title={`${rev.quarter}: $${rev.revenue}B`}
-              />
-              <span style={{ fontSize: "0.65rem", color: "var(--text-secondary)", marginTop: "4px", transform: "scale(0.85)" }}>
-                {rev.quarter}
+            <div key={pIdx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", background: "rgba(255,255,255,0.01)", borderRadius: "4px", padding: "4px 2px" }}>
+              {/* Columns container */}
+              <div style={{ display: "flex", gap: "3px", width: "100%", height: "45px", alignItems: "flex-end", justifyContent: "center" }}>
+                {/* Previous Year Column */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.5rem", color: "var(--text-muted)", fontWeight: "500", transform: "scale(0.85)", marginBottom: "1px" }}>
+                    ${pair.prev.revenue.toFixed(0)}
+                  </span>
+                  <div 
+                    style={{ 
+                      width: "100%", 
+                      height: `${Math.max(3, prevPct * 0.25)}px`, 
+                      background: "linear-gradient(to top, rgba(139, 92, 246, 0.15), rgba(99, 102, 241, 0.15))",
+                      border: "1px dashed rgba(255,255,255,0.12)",
+                      borderRadius: "1.5px"
+                    }} 
+                    title={`${pair.prev.quarter}: $${pair.prev.revenue}B`}
+                  />
+                </div>
+                {/* Current Year Column */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.5rem", color: "var(--text-primary)", fontWeight: "600", transform: "scale(0.85)", marginBottom: "1px" }}>
+                    ${pair.curr.revenue.toFixed(0)}
+                  </span>
+                  <div 
+                    style={{ 
+                      width: "100%", 
+                      height: `${Math.max(3, currPct * 0.25)}px`, 
+                      background: "linear-gradient(to top, var(--color-primary), var(--color-secondary))",
+                      borderRadius: "1.5px"
+                    }} 
+                    title={`${pair.curr.quarter}: $${pair.curr.revenue}B`}
+                  />
+                </div>
+              </div>
+              {/* Label */}
+              <span style={{ fontSize: "0.5rem", color: "var(--text-secondary)", marginTop: "4px", fontWeight: "600", transform: "scale(0.95)" }}>
+                {pair.label} ('{prevYear}/'{currYear})
               </span>
             </div>
           );
@@ -279,6 +313,80 @@ export default function Watchlist({
                     </div>
                   )}
 
+                  {visibleIndicators.includes("pegRatio") && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>PEG Ratio</span>
+                        <div className="tooltip-container" style={{ position: "relative", display: "inline-block", cursor: "help" }}>
+                          <Info size={12} style={{ color: "var(--text-muted)", verticalAlign: "middle" }} />
+                          <span className="tooltip-text" style={{
+                            visibility: "hidden",
+                            width: "160px",
+                            backgroundColor: "rgba(20, 20, 25, 0.95)",
+                            color: "#fff",
+                            textAlign: "center",
+                            borderRadius: "6px",
+                            padding: "6px 8px",
+                            position: "absolute",
+                            zIndex: 10,
+                            bottom: "125%",
+                            left: "50%",
+                            marginLeft: "-80px",
+                            opacity: 0,
+                            transition: "opacity 0.2s",
+                            fontSize: "0.7rem",
+                            lineHeight: "1.2",
+                            border: "1px solid var(--border-glass)",
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.5)"
+                          }}>
+                            Price/Earnings-to-Growth. Less than 1.0 is considered good value (ok).
+                          </span>
+                        </div>
+                      </div>
+                      <span style={{ 
+                        fontWeight: "600",
+                        color: stock.pegRatio !== undefined && stock.pegRatio < 1 ? "var(--color-success)" : "var(--text-primary)"
+                      }}>{stock.pegRatio !== undefined ? stock.pegRatio.toFixed(2) : "0.95"}</span>
+                    </div>
+                  )}
+
+                  {visibleIndicators.includes("debtToEquity") && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Debt-to-Equity</span>
+                        <div className="tooltip-container" style={{ position: "relative", display: "inline-block", cursor: "help" }}>
+                          <Info size={12} style={{ color: "var(--text-muted)", verticalAlign: "middle" }} />
+                          <span className="tooltip-text" style={{
+                            visibility: "hidden",
+                            width: "160px",
+                            backgroundColor: "rgba(20, 20, 25, 0.95)",
+                            color: "#fff",
+                            textAlign: "center",
+                            borderRadius: "6px",
+                            padding: "6px 8px",
+                            position: "absolute",
+                            zIndex: 10,
+                            bottom: "125%",
+                            left: "50%",
+                            marginLeft: "-80px",
+                            opacity: 0,
+                            transition: "opacity 0.2s",
+                            fontSize: "0.7rem",
+                            lineHeight: "1.2",
+                            border: "1px solid var(--border-glass)",
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.5)"
+                          }}>
+                            Debt relative to Equity. Less than 0.5 is considered safe leverage (ok).
+                          </span>
+                        </div>
+                      </div>
+                      <span style={{ 
+                        fontWeight: "600",
+                        color: stock.debtToEquity !== undefined && stock.debtToEquity < 0.5 ? "var(--color-success)" : "var(--text-primary)"
+                      }}>{stock.debtToEquity !== undefined ? stock.debtToEquity.toFixed(2) : "0.45"}</span>
+                    </div>
+                  )}
+
                   {visibleIndicators.includes("range52") && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                       <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", textAlign: "left" }}>52-Week Range</span>
@@ -290,7 +398,20 @@ export default function Watchlist({
                     <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "0.85rem", textAlign: "left" }}>
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <span style={{ color: "var(--text-secondary)" }}>All-Time High</span>
-                        <span style={{ fontWeight: "600", color: "var(--color-success)" }}>${(stock.ath || stock.high52 || stock.price).toFixed(2)}</span>
+                        <span style={{ fontWeight: "600", color: "var(--color-success)" }}>
+                          ${(() => {
+                            let ath = stock.ath || stock.high52 || stock.price;
+                            // Scale up if current price is pre-split but ATH is post-split
+                            if (ath < stock.price) {
+                              ath = ath * 10;
+                            }
+                            // Scale down if current price is post-split but ATH is pre-split
+                            if (stock.price < 250 && ath > stock.price * 5) {
+                              ath = ath / 10;
+                            }
+                            return Math.max(ath, stock.high52 || 0, stock.price).toFixed(2);
+                          })()}
+                        </span>
                       </div>
                       <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", alignSelf: "flex-end" }}>
                         Happened: {stock.athDate || "2024-07-15"}
@@ -353,7 +474,7 @@ export default function Watchlist({
                         {(() => {
                           const perf = getRangePerformance(stock.history);
                           const isPeriodPos = perf ? perf.isPositive : isPos;
-                          return <Sparkline data={stock.history} isPositive={isPeriodPos} />;
+                          return <Sparkline data={stock.history} isPositive={isPeriodPos} range={stock.activeRange || "1mo"} />;
                         })()}
                       </div>
                     </div>
@@ -372,6 +493,49 @@ export default function Watchlist({
                           color: stock.consensus.includes("Buy") ? "var(--color-success)" : "var(--color-warning)" 
                         }}>
                           {stock.consensus}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {visibleIndicators.includes("aiConsensus") && (
+                    <div style={{ 
+                      display: "flex", 
+                      flexDirection: "column", 
+                      gap: "6px", 
+                      padding: "10px 12px", 
+                      borderRadius: "8px", 
+                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid var(--border-glass)",
+                      fontSize: "0.8rem"
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>AI Consensus</span>
+                        <span style={{ 
+                          fontWeight: "700", 
+                          color: stock.ratingScore >= 4.0 ? "var(--color-success)" : stock.ratingScore >= 3.0 ? "var(--color-warning)" : "var(--color-danger)"
+                        }}>
+                          {stock.ratingScore >= 4.5 ? "Strong Buy" : stock.ratingScore >= 4.0 ? "Buy" : stock.ratingScore >= 3.0 ? "Hold" : "Sell"}
+                        </span>
+                      </div>
+                      
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Valuation Index</span>
+                        <span style={{ 
+                          fontWeight: "600",
+                          color: stock.peRatio > 40 ? "var(--color-warning)" : "var(--color-success)"
+                        }}>
+                          {stock.peRatio > 40 ? "Premium" : "Fair"}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Target Growth (1Y)</span>
+                        <span style={{ 
+                          fontWeight: "600",
+                          color: stock.analystTarget > stock.price ? "var(--color-success)" : "var(--color-danger)"
+                        }}>
+                          {stock.analystTarget > stock.price ? "+" : ""}{(((stock.analystTarget - stock.price) / stock.price) * 100).toFixed(1)}%
                         </span>
                       </div>
                     </div>
