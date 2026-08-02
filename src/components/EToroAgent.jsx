@@ -1,0 +1,399 @@
+import React, { useState, useEffect, useRef } from "react";
+import { Play, Pause, Settings, Key, Code, Briefcase, Database, Activity, Sparkles, TrendingUp } from "lucide-react";
+import Sparkline from "./Sparkline";
+
+export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig }) {
+  const [publicKey, setPublicKey] = useState(etoroConfig.public_key || "");
+  const [privateKey, setPrivateKey] = useState(etoroConfig.private_key || "");
+  const [portfolioId, setPortfolioId] = useState(etoroConfig.portfolio_id || "");
+  const [strategyPrompt, setStrategyPrompt] = useState(etoroConfig.strategy_prompt || "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.");
+  const [checkInterval, setCheckInterval] = useState(etoroConfig.check_interval || 5);
+  
+  const [isAgentActive, setIsAgentActive] = useState(false);
+  const [logs, setLogs] = useState(etoroConfig.trade_logs || []);
+  const [agentPortfolio, setAgentPortfolio] = useState(etoroConfig.agent_portfolio || [
+    { symbol: "AAPL", shares: 15, avgCost: 175.20 },
+    { symbol: "NVDA", shares: 45, avgCost: 85.00 }
+  ]);
+  
+  // NAV history simulation for the evolution chart
+  const [navHistory, setNavHistory] = useState([12000, 12150, 12080, 12240, 12380, 12500]);
+  const timerRef = useRef(null);
+
+  // Calculate stats
+  const totalValue = agentPortfolio.reduce((sum, item) => {
+    const sObj = stocks.find(s => s.symbol === item.symbol) || { price: item.avgCost };
+    return sum + (item.shares * sObj.price);
+  }, 0);
+
+  // Sync back to db handler
+  const handleSaveConfig = (e) => {
+    if (e) e.preventDefault();
+    onUpdateEtoroConfig({
+      public_key: publicKey,
+      private_key: privateKey,
+      portfolio_id: portfolioId,
+      strategy_prompt: strategyPrompt,
+      check_interval: parseInt(checkInterval) || 5,
+      agent_portfolio: agentPortfolio,
+      trade_logs: logs
+    });
+  };
+
+  // Simulation loop when agent is active
+  useEffect(() => {
+    if (isAgentActive) {
+      // Simulate checks every 8 seconds for immediate feedback
+      timerRef.current = setInterval(() => {
+        // Pick a random stock to evaluate
+        const targetStock = stocks[Math.floor(Math.random() * stocks.length)];
+        if (!targetStock) return;
+
+        const timestamp = new Date().toLocaleTimeString();
+        let logText = "";
+        let decision = "HOLD";
+
+        // Simple prompt parsing mock matching strategy parameters
+        const lowerPrompt = strategyPrompt.toLowerCase();
+        const scoreMatch = targetStock.ratingScore >= 4.2;
+        const lowMatch = targetStock.price < targetStock.high52 * 0.95;
+
+        if (lowerPrompt.includes("buy") && scoreMatch && lowMatch) {
+          decision = "BUY";
+        } else if (lowerPrompt.includes("sell") && targetStock.changePercent > 2.0) {
+          decision = "SELL";
+        }
+
+        if (decision === "BUY") {
+          // Add to portfolio
+          setAgentPortfolio(prev => {
+            const next = [...prev];
+            const existing = next.find(p => p.symbol === targetStock.symbol);
+            if (existing) {
+              existing.shares += 5;
+            } else {
+              next.push({ symbol: targetStock.symbol, shares: 5, avgCost: targetStock.price });
+            }
+            return next;
+          });
+          logText = `[${timestamp}] AI Agent evaluated ${targetStock.symbol} against strategy prompt: MATCH detected. Submitted BUY order for 5 shares @ $${targetStock.price.toFixed(2)} on eToro Portfolio ID ${portfolioId || "12089"}.`;
+        } else if (decision === "SELL") {
+          // Sell from portfolio
+          setAgentPortfolio(prev => {
+            const next = prev.map(p => {
+              if (p.symbol === targetStock.symbol && p.shares > 0) {
+                return { ...p, shares: Math.max(0, p.shares - 5) };
+              }
+              return p;
+            }).filter(p => p.shares > 0);
+            return next;
+          });
+          logText = `[${timestamp}] AI Agent evaluated ${targetStock.symbol} against strategy prompt: MATCH detected. Submitted SELL order for 5 shares @ $${targetStock.price.toFixed(2)} on eToro Portfolio ID ${portfolioId || "12089"}.`;
+        } else {
+          logText = `[${timestamp}] AI Agent checked ${targetStock.symbol} price ($${targetStock.price.toFixed(2)}). Prompt criteria not fully met. Issued: HOLD decision.`;
+        }
+
+        setLogs(prev => [logText, ...prev].slice(0, 50));
+        
+        // Randomly simulate minor NAV updates
+        setNavHistory(prev => {
+          const lastNav = prev[prev.length - 1];
+          const change = lastNav * ((Math.random() - 0.48) / 100); // slight positive bias
+          return [...prev, lastNav + change].slice(-20);
+        });
+
+      }, 8000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isAgentActive, strategyPrompt, stocks, portfolioId]);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "32px", padding: "24px 0", textAlign: "left" }}>
+      
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+        <div>
+          <h1 style={{ fontSize: "2rem" }}>eToro Trading Agent</h1>
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+            Configure your keys and enter a strategy prompt to run an automated AI trading agent on your eToro portfolio.
+          </p>
+        </div>
+
+        {/* Activate Toggle */}
+        <button 
+          onClick={() => setIsAgentActive(!isAgentActive)}
+          className={isAgentActive ? "btn-primary pulsing-glow" : "btn-secondary"}
+          style={{ 
+            padding: "10px 20px", 
+            borderRadius: "10px", 
+            fontSize: "0.9rem", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "8px",
+            border: isAgentActive ? "none" : "1px solid var(--border-glass)"
+          }}
+        >
+          {isAgentActive ? <Pause size={16} /> : <Play size={16} />}
+          <span>{isAgentActive ? "Deactivate AI Agent" : "Activate AI Agent"}</span>
+        </button>
+      </div>
+
+      {/* NAV Chart & Config Panels */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "28px" }}>
+        
+        {/* API Configurations */}
+        <div className="glass-panel" style={{ padding: "24px" }}>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: "600", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px", color: "var(--color-primary)" }}>
+            <Settings size={18} /> Integration settings
+          </h3>
+
+          <form onSubmit={handleSaveConfig} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
+                  eToro Public Key
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="et_pub_..."
+                  value={publicKey}
+                  onChange={(e) => setPublicKey(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-glass)",
+                    backgroundColor: "rgba(255,255,255,0.02)",
+                    color: "var(--text-primary)",
+                    outline: "none"
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
+                  eToro Private Key
+                </label>
+                <input 
+                  type="password" 
+                  placeholder="••••••••••••"
+                  value={privateKey}
+                  onChange={(e) => setPrivateKey(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-glass)",
+                    backgroundColor: "rgba(255,255,255,0.02)",
+                    color: "var(--text-primary)",
+                    outline: "none"
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
+                  Portfolio ID
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="1208945"
+                  value={portfolioId}
+                  onChange={(e) => setPortfolioId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-glass)",
+                    backgroundColor: "rgba(255,255,255,0.02)",
+                    color: "var(--text-primary)",
+                    outline: "none"
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
+                  Check Interval (Minutes)
+                </label>
+                <input 
+                  type="number" 
+                  min="1"
+                  placeholder="5"
+                  value={checkInterval}
+                  onChange={(e) => setCheckInterval(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-glass)",
+                    backgroundColor: "rgba(255,255,255,0.02)",
+                    color: "var(--text-primary)",
+                    outline: "none"
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
+                AI Strategy Trading Prompt
+              </label>
+              <textarea 
+                rows="3"
+                value={strategyPrompt}
+                onChange={(e) => setStrategyPrompt(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-glass)",
+                  backgroundColor: "rgba(255,255,255,0.02)",
+                  color: "var(--text-primary)",
+                  outline: "none",
+                  resize: "none",
+                  fontSize: "0.85rem",
+                  lineHeight: "1.4"
+                }}
+              />
+            </div>
+
+            <button type="submit" className="btn-primary" style={{ padding: "10px 16px", borderRadius: "8px" }}>
+              Save Configurations
+            </button>
+
+          </form>
+        </div>
+
+        {/* Portfolio NAV Chart Card */}
+        <div className="glass-panel" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px", color: "var(--color-secondary)" }}>
+            <TrendingUp size={18} /> Net Asset Value Evolution
+          </h3>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <div>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Current Value (NAV)</span>
+              <h2 style={{ fontSize: "1.8rem", fontWeight: "700", marginTop: "4px" }}>
+                ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h2>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Agent Status</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "6px" }}>
+                <span style={{ 
+                  display: "inline-block", 
+                  width: "8px", 
+                  height: "8px", 
+                  borderRadius: "50%", 
+                  backgroundColor: isAgentActive ? "var(--color-success)" : "var(--text-muted)" 
+                }} className={isAgentActive ? "pulsing-indicator" : ""} />
+                <span style={{ fontSize: "0.85rem", fontWeight: "600" }}>{isAgentActive ? "ACTIVE" : "PAUSED"}</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ height: "70px", padding: "10px 0" }}>
+            <Sparkline data={navHistory} isPositive={navHistory[navHistory.length - 1] >= navHistory[0]} range="1d" />
+          </div>
+        </div>
+
+      </div>
+
+      {/* Agent Holdings vs Prompt Logs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))", gap: "28px" }}>
+        
+        {/* Agent Holdings List */}
+        <div className="glass-panel" style={{ padding: "24px" }}>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: "600", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <Briefcase size={18} /> eToro Agent Portfolio Holdings
+          </h3>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {agentPortfolio.map((item) => {
+              const stock = stocks.find(s => s.symbol === item.symbol) || { price: item.avgCost, name: item.symbol };
+              const value = item.shares * stock.price;
+
+              return (
+                <div 
+                  key={item.symbol} 
+                  style={{ 
+                    display: "flex", 
+                    justifyContent: "space-between", 
+                    alignItems: "center", 
+                    padding: "12px 16px", 
+                    borderRadius: "8px", 
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--border-glass)" 
+                  }}
+                >
+                  <div style={{ textAlign: "left" }}>
+                    <span style={{ fontWeight: "700", color: "#fff", display: "block" }}>{item.symbol}</span>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                      {item.shares} shares @ avg cost ${item.avgCost.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontWeight: "600", fontSize: "0.95rem" }}>
+                      ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginTop: "2px" }}>
+                      Current: ${stock.price.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+            {agentPortfolio.length === 0 && (
+              <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No active agent holdings. Toggle agent on to trigger automated buys.</span>
+            )}
+          </div>
+        </div>
+
+        {/* Live Decisions Log */}
+        <div className="glass-panel" style={{ padding: "24px", display: "flex", flexDirection: "column" }}>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: "600", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px", color: "var(--color-secondary)" }}>
+            <Activity size={18} /> Live Prompt Engine Decisions Log
+          </h3>
+
+          <div 
+            style={{ 
+              flex: 1, 
+              minHeight: "180px", 
+              maxHeight: "300px", 
+              overflowY: "auto", 
+              backgroundColor: "rgba(0,0,0,0.2)", 
+              borderRadius: "8px", 
+              padding: "12px",
+              fontFamily: "monospace",
+              fontSize: "0.75rem",
+              lineHeight: "1.5",
+              color: "var(--text-secondary)",
+              border: "1px solid var(--border-glass)"
+            }}
+          >
+            {logs.map((log, idx) => (
+              <div key={idx} style={{ marginBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.02)", paddingBottom: "4px" }}>
+                {log}
+              </div>
+            ))}
+            {logs.length === 0 && (
+              <span style={{ color: "var(--text-muted)" }}>[Idle] AI Prompt Engine is waiting for activation...</span>
+            )}
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  );
+}

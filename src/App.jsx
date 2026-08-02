@@ -8,6 +8,7 @@ import SmartBuy from "./components/SmartBuy";
 import AdminPanel from "./components/AdminPanel";
 import Portfolio from "./components/Portfolio";
 import News from "./components/News";
+import EToroAgent from "./components/EToroAgent";
 import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock, Briefcase, Newspaper } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -53,6 +54,14 @@ export default function App() {
       return currentUser.portfolio || [];
     }
     return [];
+  });
+
+  // User eToro configuration
+  const [etoroConfig, setEtoroConfig] = useState(() => {
+    if (currentUser) {
+      return currentUser.etoroConfig || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] };
+    }
+    return { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] };
   });
 
   // Change Password Modal States
@@ -125,7 +134,8 @@ export default function App() {
           ...dbRow,
           verificationCode: dbRow.verification_code || "",
           triggeredAlerts: dbRow.triggered_alerts || [],
-          portfolio: dbRow.portfolio || []
+          portfolio: dbRow.portfolio || [],
+          etoroConfig: dbRow.etoro_config || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] }
         }));
 
         setUsers(formattedUsers);
@@ -143,6 +153,8 @@ export default function App() {
             setFavorites(freshCurrentUser.favorites || []);
             setAlerts(freshCurrentUser.alerts || []);
             setTriggeredAlertLogs(freshCurrentUser.triggeredAlerts || []);
+            setPortfolio(freshCurrentUser.portfolio || []);
+            setEtoroConfig(freshCurrentUser.etoroConfig || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] });
             setCurrentUser(freshCurrentUser);
             localStorage.setItem("foxstock-current-user", JSON.stringify(freshCurrentUser));
           }
@@ -243,6 +255,7 @@ export default function App() {
       setAlerts(currentUser.alerts || []);
       setTriggeredAlertLogs(currentUser.triggeredAlerts || []);
       setPortfolio(currentUser.portfolio || []);
+      setEtoroConfig(currentUser.etoroConfig || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] });
       
       // Ensure all favorites exist in the stocks array immediately!
       if (userFavs.length > 0) {
@@ -326,7 +339,6 @@ export default function App() {
       // 2. Create the associated profile row in public.foxstock_users
       const newUser = {
         email: email.toLowerCase(),
-        password: "(managed)",
         role: "user",
         status: "pending",
         verification_code: verificationCode,
@@ -496,7 +508,7 @@ export default function App() {
 
       if (error) throw error;
 
-      const updatedUser = { ...currentUser, password: "(managed)" };
+      const updatedUser = { ...currentUser };
       setCurrentUser(updatedUser);
       localStorage.setItem("foxstock-current-user", JSON.stringify(updatedUser));
 
@@ -517,13 +529,14 @@ export default function App() {
   };
 
   // Helper database synchronizer (avoids infinite loops)
-  const syncPreferencesToDb = async (nextFavorites, nextAlerts, nextTriggeredAlerts, nextPortfolio) => {
+  const syncPreferencesToDb = async (nextFavorites, nextAlerts, nextTriggeredAlerts, nextPortfolio, nextEtoroConfig) => {
     if (!currentUser) return;
     
     const favs = nextFavorites || favorites;
     const alts = nextAlerts || alerts;
     const trig = nextTriggeredAlerts || triggeredAlertLogs;
     const port = nextPortfolio || portfolio;
+    const etConfig = nextEtoroConfig || etoroConfig;
 
     try {
       const { error } = await supabase
@@ -532,7 +545,8 @@ export default function App() {
           favorites: favs,
           alerts: alts,
           triggered_alerts: trig,
-          portfolio: port
+          portfolio: port,
+          etoro_config: etConfig
         })
         .eq('email', currentUser.email.toLowerCase());
 
@@ -543,7 +557,8 @@ export default function App() {
         favorites: favs, 
         alerts: alts,
         triggeredAlerts: trig,
-        portfolio: port
+        portfolio: port,
+        etoroConfig: etConfig
       };
       
       setCurrentUser(updatedUser);
@@ -554,7 +569,8 @@ export default function App() {
         favorites: favs,
         alerts: alts,
         triggeredAlerts: trig,
-        portfolio: port
+        portfolio: port,
+        etoroConfig: etConfig
       } : u));
     } catch (e) {
       console.warn("Failed to sync preferences to Supabase:", e);
@@ -565,6 +581,11 @@ export default function App() {
   const handleUpdatePortfolio = (newPortfolio) => {
     setPortfolio(newPortfolio);
     syncPreferencesToDb(favorites, alerts, triggeredAlertLogs, newPortfolio);
+  };
+
+  const handleUpdateEtoroConfig = (newEtoroConfig) => {
+    setEtoroConfig(newEtoroConfig);
+    syncPreferencesToDb(favorites, alerts, triggeredAlertLogs, portfolio, newEtoroConfig);
   };
 
   // Admin Actions
@@ -1236,6 +1257,13 @@ export default function App() {
           >
             <Newspaper size={14} /> News
           </button>
+          <button 
+            className={activeTab === "etoro" ? "btn-primary" : "btn-secondary"} 
+            onClick={() => setActiveTab("etoro")}
+            style={{ padding: "8px 14px", borderRadius: "10px", gap: "6px", fontSize: "0.85rem" }}
+          >
+            <TrendingUp size={14} /> eToro Agent
+          </button>
           
           {/* Admin panel tab */}
           {isAdmin && (
@@ -1412,6 +1440,14 @@ export default function App() {
         {activeTab === "news" && (
           <News 
             portfolio={portfolio}
+          />
+        )}
+
+        {activeTab === "etoro" && (
+          <EToroAgent 
+            stocks={stocks}
+            etoroConfig={etoroConfig}
+            onUpdateEtoroConfig={handleUpdateEtoroConfig}
           />
         )}
 
