@@ -24,6 +24,59 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     return sum + (item.shares * sObj.price);
   }, 0);
 
+  // Fetch holdings/positions from eToro API
+  const fetchEtoroHoldings = async () => {
+    if (!publicKey || !privateKey) return;
+    const timestamp = new Date().toLocaleTimeString();
+    const headers = {
+      "Content-Type": "application/json",
+      "X-eToro-Public-Key": publicKey,
+      "X-eToro-Private-Key": privateKey,
+      "x-api-key": publicKey,
+      "x-user-key": privateKey
+    };
+
+    try {
+      const response = await fetch("https://public-api.etoro.com/api/v2/trading/positions", {
+        method: "GET",
+        headers: headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.positions) {
+          const mappedHoldings = data.positions.map(pos => ({
+            symbol: pos.symbol.toUpperCase(),
+            shares: pos.shares || pos.units || 1,
+            avgCost: pos.avgCost || pos.openPrice || 100
+          }));
+          setAgentPortfolio(mappedHoldings);
+          
+          onUpdateEtoroConfig({
+            public_key: publicKey,
+            private_key: privateKey,
+            strategy_prompt: strategyPrompt,
+            check_interval: parseInt(checkInterval) || 5,
+            agent_portfolio: mappedHoldings,
+            trade_logs: logs
+          });
+          
+          setLogs(prev => [`[${timestamp}] eToro API Success: Fetched real-time positions from eToro.`, ...prev].slice(0, 50));
+        }
+      } else {
+        const errText = await response.text();
+        setLogs(prev => [`[${timestamp}] eToro API positions fetch returned status ${response.status}: ${errText || "Forbidden"}. Using cached positions.`, ...prev].slice(0, 50));
+      }
+    } catch (err) {
+      setLogs(prev => [`[${timestamp}] eToro API positions fetch failed (CORS/Network error). Using cached positions.`, ...prev].slice(0, 50));
+    }
+  };
+
+  // Initial fetch on mount
+  useEffect(() => {
+    fetchEtoroHoldings();
+  }, []);
+
   const handleSaveConfig = (e) => {
     if (e) e.preventDefault();
     onUpdateEtoroConfig({
@@ -34,6 +87,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       agent_portfolio: agentPortfolio,
       trade_logs: logs
     });
+    fetchEtoroHoldings();
   };
 
   // eToro API connector
@@ -43,7 +97,8 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json",
       "X-eToro-Public-Key": publicKey || "demo-key",
       "X-eToro-Private-Key": privateKey || "demo-sec",
-      "X-eToro-Portfolio-ID": "default-port"
+      "x-api-key": publicKey || "demo-key",
+      "x-user-key": privateKey || "demo-sec"
     };
 
     const payload = {
@@ -56,8 +111,8 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     let logText = "";
     let tradeSuccess = false;
     try {
-      // Connect using the eToro API endpoint
-      const response = await fetch("https://api.etoro.com/api/v2/trading/execution/orders", {
+      // Connect using the correct eToro Public API endpoint
+      const response = await fetch("https://public-api.etoro.com/api/v2/trading/execution/orders", {
         method: "POST",
         headers: headers,
         body: JSON.stringify(payload)
@@ -72,7 +127,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         logText = `[${timestamp}] eToro API Connection Error (${response.status}): ${errText || "Resource not found"}. Order not executed.`;
       }
     } catch (err) {
-      logText = `[${timestamp}] eToro API Network/CORS Error: Failed to connect to https://api.etoro.com. Order not executed.`;
+      logText = `[${timestamp}] eToro API Network/CORS Error: Failed to connect to https://public-api.etoro.com. Order not executed.`;
     }
 
     const nextLogs = [logText, ...logs].slice(0, 50);
@@ -115,7 +170,6 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
   // Simulation loop when agent is active
   useEffect(() => {
     if (isAgentActive) {
-      // Evaluate immediately on activation
       const runEvaluation = () => {
         const lowerPrompt = strategyPrompt.toLowerCase();
         
@@ -330,9 +384,19 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               />
             </div>
 
-            <button type="submit" className="btn-primary" style={{ padding: "10px 16px", borderRadius: "8px" }}>
-              Save Configurations
-            </button>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button type="submit" className="btn-primary" style={{ padding: "10px 16px", borderRadius: "8px", flex: 1 }}>
+                Save Configurations
+              </button>
+              <button 
+                type="button" 
+                onClick={fetchEtoroHoldings} 
+                className="btn-secondary" 
+                style={{ padding: "10px 16px", borderRadius: "8px", display: "flex", alignItems: "center", gap: "6px" }}
+              >
+                <Activity size={14} /> Refresh Holdings
+              </button>
+            </div>
 
           </form>
         </div>
@@ -418,7 +482,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               );
             })}
             {agentPortfolio.length === 0 && (
-              <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No active agent holdings. Toggle agent on to trigger automated buys.</span>
+              <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No active eToro holdings. Make sure your eToro API keys are saved and active.</span>
             )}
           </div>
         </div>
