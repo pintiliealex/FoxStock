@@ -11,6 +11,7 @@ import News from "./components/News";
 import EToroAgent from "./components/EToroAgent";
 import { TrendingUp, Bell, Star, LayoutDashboard, Sun, Moon, AlertTriangle, X, LogOut, BrainCircuit, User, ShieldAlert, Key, Lock, Briefcase, Newspaper } from "lucide-react";
 import { supabase } from "./supabaseClient";
+import { encryptText, decryptText } from "./utils/crypto";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -154,7 +155,20 @@ export default function App() {
             setAlerts(freshCurrentUser.alerts || []);
             setTriggeredAlertLogs(freshCurrentUser.triggeredAlerts || []);
             setPortfolio(freshCurrentUser.portfolio || []);
-            setEtoroConfig(freshCurrentUser.etoroConfig || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] });
+            
+            const decryptConfig = async () => {
+              const rawConf = freshCurrentUser.etoroConfig || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] };
+              let decConf = { ...rawConf };
+              if (decConf.public_key) {
+                decConf.public_key = await decryptText(decConf.public_key, freshCurrentUser.email);
+              }
+              if (decConf.private_key) {
+                decConf.private_key = await decryptText(decConf.private_key, freshCurrentUser.email);
+              }
+              setEtoroConfig(decConf);
+            };
+            decryptConfig();
+
             setCurrentUser(freshCurrentUser);
             localStorage.setItem("foxstock-current-user", JSON.stringify(freshCurrentUser));
           }
@@ -255,7 +269,19 @@ export default function App() {
       setAlerts(currentUser.alerts || []);
       setTriggeredAlertLogs(currentUser.triggeredAlerts || []);
       setPortfolio(currentUser.portfolio || []);
-      setEtoroConfig(currentUser.etoroConfig || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] });
+      
+      const loadConfig = async () => {
+        const rawConf = currentUser.etoroConfig || { public_key: "", private_key: "", portfolio_id: "", strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.", check_interval: 5, agent_portfolio: [], trade_logs: [] };
+        let decConf = { ...rawConf };
+        if (decConf.public_key) {
+          decConf.public_key = await decryptText(decConf.public_key, currentUser.email);
+        }
+        if (decConf.private_key) {
+          decConf.private_key = await decryptText(decConf.private_key, currentUser.email);
+        }
+        setEtoroConfig(decConf);
+      };
+      loadConfig();
       
       // Ensure all favorites exist in the stocks array immediately!
       if (userFavs.length > 0) {
@@ -538,6 +564,14 @@ export default function App() {
     const port = nextPortfolio || portfolio;
     const etConfig = nextEtoroConfig || etoroConfig;
 
+    let dbEtConfig = { ...etConfig };
+    if (dbEtConfig.public_key) {
+      dbEtConfig.public_key = await encryptText(dbEtConfig.public_key, currentUser.email);
+    }
+    if (dbEtConfig.private_key) {
+      dbEtConfig.private_key = await encryptText(dbEtConfig.private_key, currentUser.email);
+    }
+
     try {
       const { error } = await supabase
         .from('foxstock_users')
@@ -546,7 +580,7 @@ export default function App() {
           alerts: alts,
           triggered_alerts: trig,
           portfolio: port,
-          etoro_config: etConfig
+          etoro_config: dbEtConfig
         })
         .eq('email', currentUser.email.toLowerCase());
 

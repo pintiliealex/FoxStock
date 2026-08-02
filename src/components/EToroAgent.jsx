@@ -5,7 +5,6 @@ import Sparkline from "./Sparkline";
 export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig }) {
   const [publicKey, setPublicKey] = useState(etoroConfig.public_key || "");
   const [privateKey, setPrivateKey] = useState(etoroConfig.private_key || "");
-  const [portfolioId, setPortfolioId] = useState(etoroConfig.portfolio_id || "");
   const [strategyPrompt, setStrategyPrompt] = useState(etoroConfig.strategy_prompt || "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.");
   const [checkInterval, setCheckInterval] = useState(etoroConfig.check_interval || 5);
   
@@ -30,7 +29,6 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     onUpdateEtoroConfig({
       public_key: publicKey,
       private_key: privateKey,
-      portfolio_id: portfolioId,
       strategy_prompt: strategyPrompt,
       check_interval: parseInt(checkInterval) || 5,
       agent_portfolio: agentPortfolio,
@@ -45,7 +43,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json",
       "X-eToro-Public-Key": publicKey || "demo-key",
       "X-eToro-Private-Key": privateKey || "demo-sec",
-      "X-eToro-Portfolio-ID": portfolioId || "demo-port"
+      "X-eToro-Portfolio-ID": "default-port"
     };
 
     const payload = {
@@ -103,7 +101,6 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     onUpdateEtoroConfig({
       public_key: publicKey,
       private_key: privateKey,
-      portfolio_id: portfolioId,
       strategy_prompt: strategyPrompt,
       check_interval: parseInt(checkInterval) || 5,
       agent_portfolio: nextPortfolio,
@@ -196,7 +193,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isAgentActive, strategyPrompt, stocks, portfolioId]);
+  }, [isAgentActive, strategyPrompt, stocks]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "32px", padding: "24px 0", textAlign: "left" }}>
@@ -284,49 +281,26 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-              <div>
-                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
-                  Portfolio ID
-                </label>
-                <input 
-                  type="text" 
-                  placeholder="1208945"
-                  value={portfolioId}
-                  onChange={(e) => setPortfolioId(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-glass)",
-                    backgroundColor: "rgba(255,255,255,0.02)",
-                    color: "var(--text-primary)",
-                    outline: "none"
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
-                  Check Interval (Minutes)
-                </label>
-                <input 
-                  type="number" 
-                  min="1"
-                  placeholder="5"
-                  value={checkInterval}
-                  onChange={(e) => setCheckInterval(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-glass)",
-                    backgroundColor: "rgba(255,255,255,0.02)",
-                    color: "var(--text-primary)",
-                    outline: "none"
-                  }}
-                />
-              </div>
+            <div>
+              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "block", marginBottom: "6px" }}>
+                Check Interval (Minutes)
+              </label>
+              <input 
+                type="number" 
+                min="1"
+                placeholder="5"
+                value={checkInterval}
+                onChange={(e) => setCheckInterval(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-glass)",
+                  backgroundColor: "rgba(255,255,255,0.02)",
+                  color: "var(--text-primary)",
+                  outline: "none"
+                }}
+              />
             </div>
 
             <div>
