@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Play, Pause, Settings, Key, Code, Briefcase, Database, Activity, Sparkles, TrendingUp } from "lucide-react";
+import { Play, Pause, Settings, Key, Code, Briefcase, Database, Activity, Sparkles, TrendingUp, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 import Sparkline from "./Sparkline";
 
 // Official eToro numeric instrumentId mapping lookup table
@@ -29,11 +29,13 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
   
   const [isAgentActive, setIsAgentActive] = useState(false);
   const [logs, setLogs] = useState(etoroConfig.trade_logs || []);
-  const [agentPortfolio, setAgentPortfolio] = useState(etoroConfig.agent_portfolio || [
-    { symbol: "AAPL", shares: 15, avgCost: 175.20 },
-    { symbol: "NVDA", shares: 45, avgCost: 85.00 }
-  ]);
+  const [agentPortfolio, setAgentPortfolio] = useState(etoroConfig.agent_portfolio || []);
   
+  // UI status and error states
+  const [authError, setAuthError] = useState("");
+  const [authSuccess, setAuthSuccess] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const timerRef = useRef(null);
 
   // Calculate NAV
@@ -53,9 +55,19 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     totalValue
   ];
 
-  // Robust Fetch holdings/positions from eToro API with multiple endpoint resolution
+  // Fetch holdings/positions directly from eToro API (Demo Endpoint: /api/v2/trading/info/demo/positions)
   const fetchEtoroHoldings = async () => {
-    if (!publicKey || !privateKey) return;
+    setAuthError("");
+    setAuthSuccess("");
+    setIsRefreshing(true);
+    setAgentPortfolio([]);
+
+    if (!publicKey || !privateKey) {
+      setAuthError("eToro Public Key and Private Key are required to sync account holdings.");
+      setIsRefreshing(false);
+      return;
+    }
+
     const timestamp = new Date().toLocaleTimeString();
     const requestId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
 
@@ -76,6 +88,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     ];
 
     let fetchSuccess = false;
+    let lastErrText = "";
+    let lastStatus = 0;
+
     for (const targetUrl of endpoints) {
       if (fetchSuccess) break;
       const proxyUrl = `https://corsproxy.io/?${targetUrl}`;
@@ -92,67 +107,56 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             ? data 
             : (data.positions || data.Positions || data.portfolio || data.Portfolio || []);
 
-          if (rawPositions && rawPositions.length > 0) {
-            const mappedHoldings = rawPositions.map(pos => {
-              const instId = pos.instrumentId || pos.instrumentID || pos.InstrumentID || pos.InstrumentId;
-              const matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId) 
-                || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || (instId ? `INSTR-${instId}` : "ASSET");
-              
-              const sharesVal = Number(pos.shares || pos.Shares || pos.units || pos.Units || pos.amount || pos.Amount || 1);
-              const costVal = Number(pos.avgCost || pos.AvgCost || pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || 100);
-
-              return {
-                symbol: matchedTicker.toUpperCase(),
-                shares: sharesVal,
-                avgCost: costVal
-              };
-            });
-
-            setAgentPortfolio(mappedHoldings);
-            fetchSuccess = true;
+          const mappedHoldings = rawPositions.map(pos => {
+            const instId = pos.instrumentId || pos.instrumentID || pos.InstrumentID || pos.InstrumentId;
+            const matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId) 
+              || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || (instId ? `INSTR-${instId}` : "ASSET");
             
-            onUpdateEtoroConfig({
-              public_key: publicKey,
-              private_key: privateKey,
-              strategy_prompt: strategyPrompt,
-              check_interval: parseInt(checkInterval) || 5,
-              agent_portfolio: mappedHoldings,
-              trade_logs: logs
-            });
-            
-            setLogs(prev => [`[${timestamp}] eToro Demo API Success (200): Loaded ${mappedHoldings.length} real portfolio positions from eToro.`, ...prev].slice(0, 50));
-          }
+            const sharesVal = Number(pos.shares || pos.Shares || pos.units || pos.Units || pos.amount || pos.Amount || 1);
+            const costVal = Number(pos.avgCost || pos.AvgCost || pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || 100);
+
+            return {
+              symbol: matchedTicker.toUpperCase(),
+              shares: sharesVal,
+              avgCost: costVal
+            };
+          });
+
+          setAgentPortfolio(mappedHoldings);
+          fetchSuccess = true;
+          setAuthSuccess(`eToro Credentials Verified! Loaded ${mappedHoldings.length} position(s) from eToro account.`);
+          
+          onUpdateEtoroConfig({
+            public_key: publicKey,
+            private_key: privateKey,
+            strategy_prompt: strategyPrompt,
+            check_interval: parseInt(checkInterval) || 5,
+            agent_portfolio: mappedHoldings,
+            trade_logs: logs
+          });
+          
+          setLogs(prev => [`[${timestamp}] eToro Demo API Success (200): Loaded ${mappedHoldings.length} positions directly from eToro account.`, ...prev].slice(0, 50));
         } else {
-          const errText = await response.text();
-          setLogs(prev => [`[${timestamp}] eToro Positions API [${targetUrl}] returned ${response.status}: ${errText || "Forbidden/Not Found"}.`, ...prev].slice(0, 50));
+          lastStatus = response.status;
+          lastErrText = await response.text();
+          setLogs(prev => [`[${timestamp}] eToro Positions API HTTP ${response.status}: ${lastErrText || "Unauthorized/Forbidden"}.`, ...prev].slice(0, 50));
         }
       } catch (err) {
-        // Continue to next candidate endpoint
+        lastErrText = err.message;
       }
     }
 
-    // Fallback: If network fetch fails but valid credentials are provided, populate realistic holdings
-    if (!fetchSuccess && publicKey && privateKey) {
-      const isDefault = agentPortfolio.length === 2 && agentPortfolio[0].symbol === "AAPL" && agentPortfolio[0].shares === 15;
-      if (agentPortfolio.length === 0 || isDefault) {
-        const realisticHoldings = [
-          { symbol: "BTC", shares: 0.15, avgCost: 61200.00 },
-          { symbol: "AAPL", shares: 12, avgCost: 182.50 },
-          { symbol: "MSFT", shares: 8, avgCost: 410.20 },
-          { symbol: "NVDA", shares: 25, avgCost: 92.40 }
-        ];
-        setAgentPortfolio(realisticHoldings);
-        
-        onUpdateEtoroConfig({
-          public_key: publicKey,
-          private_key: privateKey,
-          strategy_prompt: strategyPrompt,
-          check_interval: parseInt(checkInterval) || 5,
-          agent_portfolio: realisticHoldings,
-          trade_logs: logs
-        });
+    if (!fetchSuccess) {
+      if (lastStatus === 401 || lastStatus === 403 || (lastErrText && (lastErrText.toLowerCase().includes("unauthorized") || lastErrText.toLowerCase().includes("forbidden")))) {
+        setAuthError(`eToro Authentication Error (HTTP ${lastStatus || 401}): Invalid eToro Public/Private Key. Please verify your keys at etoro.com/settings/trade.`);
+      } else if (lastStatus > 0) {
+        setAuthError(`eToro API Error (HTTP ${lastStatus}): ${lastErrText || "Key verification failed"}.`);
+      } else {
+        setAuthError("Failed to authenticate keys with eToro API. Please verify your keys.");
       }
     }
+
+    setIsRefreshing(false);
   };
 
   // Initial fetch on mount
@@ -162,6 +166,12 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
   const handleSaveConfig = (e) => {
     if (e) e.preventDefault();
+    setAuthError("");
+    setAuthSuccess("");
+    if (!publicKey || !privateKey) {
+      setAuthError("eToro Public Key and Private Key are required.");
+      return;
+    }
     onUpdateEtoroConfig({
       public_key: publicKey,
       private_key: privateKey,
@@ -217,16 +227,10 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         tradeSuccess = true;
       } else {
         const errText = await response.text();
-        logText = `[${timestamp}] eToro API HTTP ${response.status} Error: ${errText || "Invalid payload or instrumentId"}. (Tried instrumentId: ${instrumentId} for ${symbol}).`;
-        // Allow sandbox demo execution if demo key pattern or offline mode
-        if (publicKey.startsWith("demo") || publicKey === "") {
-          tradeSuccess = true;
-          logText = `[${timestamp}] [Sandbox Mode] Executed simulated fallback order: ${action.toUpperCase()} ${symbol} [instrumentId: ${instrumentId}] ($${amountVal}).`;
-        }
+        logText = `[${timestamp}] eToro API HTTP ${response.status} Error: ${errText || "Invalid payload or credentials"}. (Tried instrumentId: ${instrumentId} for ${symbol}).`;
       }
     } catch (err) {
-      logText = `[${timestamp}] eToro API Proxy Request: Submitted ${action.toUpperCase()} ${symbol} [instrumentId: ${instrumentId}] ($${amountVal}).`;
-      tradeSuccess = true;
+      logText = `[${timestamp}] eToro API Network Error: Unable to execute ${action.toUpperCase()} ${symbol}. Check API keys and network connection.`;
     }
 
     const nextLogs = [logText, ...logs].slice(0, 50);
@@ -400,6 +404,43 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             <Settings size={18} /> Integration settings
           </h3>
 
+          {/* Visual Alert Banners for Authentication Status */}
+          {authError && (
+            <div style={{ 
+              marginBottom: "16px", 
+              padding: "12px 14px", 
+              borderRadius: "8px", 
+              backgroundColor: "rgba(239, 68, 68, 0.15)", 
+              border: "1px solid rgba(239, 68, 68, 0.4)",
+              color: "#f87171",
+              fontSize: "0.85rem",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "8px"
+            }}>
+              <AlertCircle size={18} style={{ flexShrink: 0, marginTop: "2px" }} />
+              <div>{authError}</div>
+            </div>
+          )}
+
+          {authSuccess && (
+            <div style={{ 
+              marginBottom: "16px", 
+              padding: "12px 14px", 
+              borderRadius: "8px", 
+              backgroundColor: "rgba(34, 197, 94, 0.15)", 
+              border: "1px solid rgba(34, 197, 94, 0.4)",
+              color: "#4ade80",
+              fontSize: "0.85rem",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "8px"
+            }}>
+              <CheckCircle size={18} style={{ flexShrink: 0, marginTop: "2px" }} />
+              <div>{authSuccess}</div>
+            </div>
+          )}
+
           <form onSubmit={handleSaveConfig} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
@@ -498,10 +539,12 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               <button 
                 type="button" 
                 onClick={fetchEtoroHoldings} 
+                disabled={isRefreshing}
                 className="btn-secondary" 
                 style={{ padding: "10px 16px", borderRadius: "8px", display: "flex", alignItems: "center", gap: "6px" }}
               >
-                <Activity size={14} /> Refresh Holdings
+                {isRefreshing ? <Loader2 size={14} className="spinning-loader" /> : <Activity size={14} />}
+                <span>{isRefreshing ? "Checking Keys..." : "Refresh Holdings"}</span>
               </button>
             </div>
 
@@ -589,7 +632,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               );
             })}
             {agentPortfolio.length === 0 && (
-              <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No active eToro holdings. Make sure your eToro API keys are saved and active.</span>
+              <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                {authError ? "Unable to load holdings due to authentication error." : "No active eToro holdings found. Make sure your eToro API keys are saved and valid."}
+              </span>
             )}
           </div>
         </div>
