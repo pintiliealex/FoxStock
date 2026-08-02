@@ -38,6 +38,18 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
   const timerRef = useRef(null);
 
+  // Refs to hold latest values without triggering timer recreation
+  const promptRef = useRef(strategyPrompt);
+  const stocksRef = useRef(stocks);
+
+  useEffect(() => {
+    promptRef.current = strategyPrompt;
+  }, [strategyPrompt]);
+
+  useEffect(() => {
+    stocksRef.current = stocks;
+  }, [stocks]);
+
   // Calculate NAV
   const totalValue = agentPortfolio.reduce((sum, item) => {
     const sObj = stocks.find(s => s.symbol === item.symbol) || { price: item.symbol === "BTC" ? 64500 : item.avgCost };
@@ -304,14 +316,16 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     });
   };
 
-  // Simulation loop when agent is active
+  // Evaluation loop according to user-defined checkInterval (in Minutes)
   useEffect(() => {
     if (isAgentActive) {
       const runEvaluation = () => {
-        const lowerPrompt = strategyPrompt.toLowerCase();
+        const activePrompt = promptRef.current || "";
+        const lowerPrompt = activePrompt.toLowerCase();
+        const activeStocks = stocksRef.current || [];
         
-        // 1. If strategy prompt is empty, warn and stop agent
-        if (!strategyPrompt || strategyPrompt.trim() === "") {
+        // If strategy prompt is empty, warn and stop agent
+        if (!activePrompt || activePrompt.trim() === "") {
           const timestamp = new Date().toLocaleTimeString();
           setLogs(prev => [`[${timestamp}] Warning: AI Strategy Prompt is empty. Please enter instructions (e.g. 'Buy once BTC for 100 USD') to activate agent.`, ...prev].slice(0, 50));
           setIsAgentActive(false);
@@ -327,13 +341,12 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           const parsedAmount = buyMatch[2] ? parseFloat(buyMatch[2]) : 100;
           
           const isTicker = /^[A-Z0-9\.\-]+$/.test(parsedSymbol) && parsedSymbol.length <= 6;
-          const existsInStocks = stocks.some(s => s.symbol === parsedSymbol);
+          const existsInStocks = activeStocks.some(s => s.symbol === parsedSymbol);
           
           if (parsedSymbol === "BTC" || isTicker || existsInStocks) {
             executeEtoroTrade(parsedSymbol, "BUY", parsedAmount);
-            if (lowerPrompt.includes("once")) {
-              setIsAgentActive(false);
-            }
+            // One-time execution: auto-deactivate after executing order
+            setIsAgentActive(false);
             return;
           }
         } 
@@ -343,24 +356,22 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           const parsedAmount = sellMatch[2] ? parseFloat(sellMatch[2]) : 100;
           
           const isTicker = /^[A-Z0-9\.\-]+$/.test(parsedSymbol) && parsedSymbol.length <= 6;
-          const existsInStocks = stocks.some(s => s.symbol === parsedSymbol);
+          const existsInStocks = activeStocks.some(s => s.symbol === parsedSymbol);
           
           if (parsedSymbol === "BTC" || isTicker || existsInStocks) {
             executeEtoroTrade(parsedSymbol, "SELL", parsedAmount);
-            if (lowerPrompt.includes("once")) {
-              setIsAgentActive(false);
-            }
+            // One-time execution: auto-deactivate after executing order
+            setIsAgentActive(false);
             return;
           }
         }
 
-        // Generic market evaluation scan (only runs if there are keywords like "rating", "score" or "buy tech")
+        // Generic market evaluation scan (only runs if strategy prompt specifies criteria)
         if (lowerPrompt.includes("rating") || lowerPrompt.includes("score") || lowerPrompt.includes("tech") || lowerPrompt.includes("indicator")) {
-          const targetStock = stocks[Math.floor(Math.random() * stocks.length)];
+          const targetStock = activeStocks[Math.floor(Math.random() * activeStocks.length)];
           if (!targetStock) return;
 
           const timestamp = new Date().toLocaleTimeString();
-          let logText = "";
           let decision = "HOLD";
 
           const scoreMatch = targetStock.ratingScore >= 4.2;
@@ -377,18 +388,20 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           } else if (decision === "SELL") {
             executeEtoroTrade(targetStock.symbol, "SELL", 150);
           } else {
-            logText = `[${timestamp}] AI Agent checked ${targetStock.symbol} price ($${targetStock.price.toFixed(2)}). Strategy criteria not met. Issued: HOLD decision.`;
+            const logText = `[${timestamp}] AI Agent checked ${targetStock.symbol} price ($${targetStock.price.toFixed(2)}). Strategy criteria not met. Issued: HOLD decision. (Interval: ${checkInterval}m).`;
             setLogs(prev => [logText, ...prev].slice(0, 50));
           }
         } else {
-          // Unrecognized command or blank, log wait notice
           const timestamp = new Date().toLocaleTimeString();
-          setLogs(prev => [`[${timestamp}] AI Strategy Prompt active. Evaluation: idle (no matching targets or criteria parsed).`, ...prev].slice(0, 50));
+          setLogs(prev => [`[${timestamp}] AI Strategy Prompt active. Check interval: ${checkInterval} minutes. Next check scheduled.`, ...prev].slice(0, 50));
         }
       };
 
       runEvaluation();
-      timerRef.current = setInterval(runEvaluation, 8000);
+
+      // Convert Check Interval from Minutes to Milliseconds (e.g. 5 minutes = 300,000 ms)
+      const intervalMs = Math.max(1, parseInt(checkInterval) || 5) * 60 * 1000;
+      timerRef.current = setInterval(runEvaluation, intervalMs);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
@@ -396,7 +409,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isAgentActive, strategyPrompt, stocks]);
+  }, [isAgentActive, checkInterval]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "32px", padding: "24px 0", textAlign: "left" }}>
