@@ -191,7 +191,7 @@ export default function App() {
     return () => clearInterval(syncInterval);
   }, []);
 
-  // Decrypt eToro credentials from cached current user on startup
+  // Decrypt eToro credentials from cached current user or cloud sync on startup
   useEffect(() => {
     const initDec = async () => {
       if (currentUser && currentUser.etoroConfig) {
@@ -199,10 +199,10 @@ export default function App() {
         let decConf = { ...rawConf };
         const userEmail = currentUser.email.toLowerCase();
         try {
-          if (decConf.public_key && decConf.public_key.startsWith("ct_")) {
+          if (decConf.public_key) {
             decConf.public_key = await decryptText(decConf.public_key, userEmail);
           }
-          if (decConf.private_key && decConf.private_key.startsWith("ct_")) {
+          if (decConf.private_key) {
             decConf.private_key = await decryptText(decConf.private_key, userEmail);
           }
           setEtoroConfig(decConf);
@@ -212,7 +212,7 @@ export default function App() {
       }
     };
     initDec();
-  }, [currentUser?.email]);
+  }, [currentUser]);
 
   // Handle automatic account activation and login when redirected from verification email
   useEffect(() => {
