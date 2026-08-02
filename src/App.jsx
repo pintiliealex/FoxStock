@@ -483,7 +483,7 @@ export default function App() {
         return { error: "Your account has been blocked by an administrator." };
       }
 
-      // Decrypt eToro Config keys immediately on login
+      // Decrypt eToro Config keys using Supabase Vault Database-Level Encryption
       let decEtoroConfig = {
         public_key: "",
         private_key: "",
@@ -493,7 +493,19 @@ export default function App() {
         agent_portfolio: [],
         trade_logs: []
       };
-      if (data && data.etoro_config) {
+      
+      try {
+        const { data: vaultData } = await supabase.rpc('get_user_etoro_keys_vault', {
+          p_email: email.toLowerCase()
+        });
+        if (vaultData) {
+          decEtoroConfig = { ...decEtoroConfig, ...vaultData };
+        }
+      } catch (vaultErr) {
+        console.warn("Vault recovery error:", vaultErr);
+      }
+
+      if (data && data.etoro_config && (!decEtoroConfig.public_key || !decEtoroConfig.private_key)) {
         const rawConf = data.etoro_config;
         decEtoroConfig = { ...decEtoroConfig, ...rawConf };
         if (decEtoroConfig.public_key) {
@@ -609,6 +621,21 @@ export default function App() {
     const trig = nextTriggeredAlerts || triggeredAlertLogs;
     const port = nextPortfolio || portfolio;
     const etConfig = nextEtoroConfig || etoroConfig;
+
+    // Database-Level Encryption via Supabase Vault RPC
+    try {
+      if (etConfig) {
+        await supabase.rpc('save_user_etoro_keys_vault', {
+          p_email: currentUser.email.toLowerCase(),
+          p_public_key: etConfig.public_key || '',
+          p_private_key: etConfig.private_key || '',
+          p_strategy_prompt: etConfig.strategy_prompt || '',
+          p_check_interval: parseInt(etConfig.check_interval) || 5
+        });
+      }
+    } catch (vErr) {
+      console.warn("Supabase Vault RPC error:", vErr);
+    }
 
     let dbEtConfig = { ...etConfig };
     if (dbEtConfig.public_key) {
