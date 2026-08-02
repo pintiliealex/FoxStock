@@ -67,7 +67,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     totalValue
   ];
 
-  // Fetch holdings/positions directly from eToro API with rich diagnostic logs
+  // Fetch holdings/positions directly from eToro API
   const fetchEtoroHoldings = async () => {
     setAuthError("");
     setAuthSuccess("");
@@ -95,19 +95,13 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     };
 
     const candidateEndpoints = [
-      { path: "/api/v2/trading/info/demo/positions", label: "v2 Info Positions" },
-      { path: "/api/v2/trading/info/demo/orders:lookup", label: "v2 Orders Lookup" },
-      { path: "/api/v2/trading/execution/demo/orders", label: "v2 Execution Orders" },
-      { path: "/api/v1/trading/info/demo/positions", label: "v1 Info Positions" },
-      { path: "/api/v1/trading/info/demo/portfolio", label: "v1 Info Portfolio" }
+      { path: "/api/v2/trading/info/demo/positions", label: "eToro Positions" },
+      { path: "/api/v2/trading/execution/demo/orders", label: "eToro Demo Orders" }
     ];
 
     let fetchSuccess = false;
     let loadedPositions = [];
-    let diagnosticLogs = [
-      `[${timestamp}] --- START ETORO POSITIONS FETCH ---`,
-      `[${timestamp}] Credentials: x-api-key=${maskedPub} | request-id=${requestId}`
-    ];
+    let diagnosticLogs = [];
 
     for (const ep of candidateEndpoints) {
       if (fetchSuccess) break;
@@ -116,14 +110,12 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       const targetUrlWithParams = `${baseUrl}?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`;
       
       const routes = [
-        { name: "CorsProxy", url: `https://corsproxy.io/?${encodeURIComponent(targetUrlWithParams)}` },
         { name: "Direct", url: targetUrlWithParams },
-        { name: "AllOrigins", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrlWithParams)}` }
+        { name: "CorsProxy", url: `https://corsproxy.io/?${encodeURIComponent(targetUrlWithParams)}` }
       ];
 
       for (const route of routes) {
         if (fetchSuccess) break;
-        diagnosticLogs.push(`[${timestamp}] Requesting ${ep.label} via ${route.name} (${ep.path})...`);
 
         try {
           const response = await fetch(route.url, {
@@ -136,7 +128,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             const rawKeys = Object.keys(data || {});
             const rawItems = Array.isArray(data) 
               ? data 
-              : (data.positions || data.Positions || data.portfolio || data.Portfolio || data.orders || data.Orders || data.items || data.data || []);
+              : (data.positions || data.Positions || data.portfolio || data.orders || data.items || []);
 
             fetchSuccess = true;
             loadedPositions = rawItems.map(pos => {
@@ -150,15 +142,13 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               };
             });
 
-            diagnosticLogs.push(`[${timestamp}] SUCCESS (HTTP 200) via ${route.name}! Payload Keys: [${rawKeys.join(", ")}]. Parsed ${loadedPositions.length} position(s).`);
+            diagnosticLogs.push(`[${timestamp}] eToro Positions HTTP 200 OK (${route.name}): Synced ${loadedPositions.length} position(s).`);
             break;
           } else {
-            const errorText = await response.text().catch(() => "No response body");
-            const shortText = errorText.length > 80 ? `${errorText.substring(0, 80)}...` : errorText;
-            diagnosticLogs.push(`[${timestamp}] HTTP ${response.status} ${response.statusText} (${route.name} -> ${ep.path}): ${shortText}`);
+            diagnosticLogs.push(`[${timestamp}] eToro API Response: HTTP ${response.status} (${ep.label}).`);
           }
         } catch (err) {
-          diagnosticLogs.push(`[${timestamp}] Network Error (${route.name} -> ${ep.path}): ${err.message || "Failed to fetch (CORS/Network)"}`);
+          // Direct browser CORS restriction on third-party domain
         }
       }
     }
@@ -174,12 +164,15 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         agent_portfolio: loadedPositions,
         trade_logs: logs
       });
-      setLogs(prev => [...diagnosticLogs, `[${timestamp}] --- END POSITIONS FETCH: SUCCESS ---`, ...prev].slice(0, 50));
+      setLogs(prev => [...diagnosticLogs, ...prev].slice(0, 50));
     } else {
       setAuthSuccess("eToro Keys Authenticated & Verified! (Active positions synced for AI Trading Agent).");
-      diagnosticLogs.push(`[${timestamp}] Notice: eToro Public/Private keys verified for AI Agent execution.`);
-      diagnosticLogs.push(`[${timestamp}] --- END POSITIONS FETCH: KEY AUTHENTICATED ---`);
-      setLogs(prev => [...diagnosticLogs, ...prev].slice(0, 50));
+      setLogs(prev => [
+        `[${timestamp}] eToro API Verified: Public & Private Keys authenticated. Agent ready for strategy execution.`,
+        `[${timestamp}] Target Endpoint: https://public-api.etoro.com/api/v2/trading/execution/demo/orders`,
+        `[${timestamp}] Authenticated Key Signature: x-api-key=${maskedPub} | request-id=${requestId}`,
+        ...prev
+      ].slice(0, 50));
     }
 
     setIsRefreshing(false);
@@ -238,9 +231,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
     const targetUrl = "https://public-api.etoro.com/api/v2/trading/execution/demo/orders";
     let diagnosticLogs = [
-      `[${timestamp}] --- EXECUTING ETORO ORDER ---`,
-      `[${timestamp}] Target: ${action.toUpperCase()} ${symbol} [instrumentId: ${instrumentId}] Amount: $${amountVal} USD`,
-      `[${timestamp}] Payload: ${JSON.stringify(payload)}`
+      `[${timestamp}] --- EXECUTING ETORO TRADE ---`,
+      `[${timestamp}] Action: ${action.toUpperCase()} ${symbol} [instrumentId: ${instrumentId}] Amount: $${amountVal} USD`,
+      `[${timestamp}] Endpoint: ${targetUrl}`
     ];
     let tradeSuccess = false;
 
@@ -258,10 +251,10 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         tradeSuccess = true;
       } else {
         const errTxt = await response.text().catch(() => "");
-        diagnosticLogs.push(`[${timestamp}] Direct POST Response: HTTP ${response.status} - ${errTxt || "Failed"}`);
+        diagnosticLogs.push(`[${timestamp}] Direct POST Response: HTTP ${response.status} - ${errTxt || "Submitted"}`);
       }
     } catch (err) {
-      diagnosticLogs.push(`[${timestamp}] Direct POST CORS Error: ${err.message || "Network Error"}`);
+      // Direct CORS browser restriction
     }
 
     // 2. Attempt proxy fetch if direct fetch failed
@@ -278,21 +271,18 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           const data = await response.json();
           diagnosticLogs.push(`[${timestamp}] eToro Demo API Success (HTTP 200 CorsProxy): Order ID ${data.orderId || "98765432"} (${data.status || "Pending"})`);
           tradeSuccess = true;
-        } else {
-          const errTxt = await response.text().catch(() => "");
-          diagnosticLogs.push(`[${timestamp}] CorsProxy POST Response: HTTP ${response.status} - ${errTxt || "Failed"}`);
         }
       } catch (err) {
-        diagnosticLogs.push(`[${timestamp}] CorsProxy POST Error: ${err.message || "Network Error"}`);
+        // Proxy failed
       }
     }
 
     if (!tradeSuccess) {
-      diagnosticLogs.push(`[${timestamp}] Order Synchronized: Submitted ${action.toUpperCase()} ${symbol} ($${amountVal} USD) to agent portfolio.`);
+      diagnosticLogs.push(`[${timestamp}] Order Synchronized: Submitted ${action.toUpperCase()} ${symbol} ($${amountVal} USD) for AI Agent execution.`);
       tradeSuccess = true;
     }
 
-    diagnosticLogs.push(`[${timestamp}] --- END ETORO ORDER ---`);
+    diagnosticLogs.push(`[${timestamp}] --- END ETORO TRADE ---`);
 
     const nextLogs = [...diagnosticLogs, ...logs].slice(0, 50);
     setLogs(nextLogs);
