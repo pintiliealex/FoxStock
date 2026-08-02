@@ -67,7 +67,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     totalValue
   ];
 
-  // Fetch holdings/positions directly from eToro API with complete diagnostic logs
+  // Fetch holdings/positions directly from eToro API (Official GET Demo Portfolio Breakdown)
   const fetchEtoroHoldings = async () => {
     setAuthError("");
     setAuthSuccess("");
@@ -94,8 +94,11 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json"
     };
 
-    // Candidate endpoints for eToro Demo Sandbox Positions & PnL
+    // Official eToro API endpoints including Get Demo Portfolio Breakdown
     const candidateEndpoints = [
+      { path: "/api/v1/trading/info/demo/portfolio/breakdown", label: "Demo Portfolio Breakdown (/v1/...)" },
+      { path: "/api/v2/trading/info/demo/portfolio/breakdown", label: "Demo Portfolio Breakdown (/v2/...)" },
+      { path: "/api/v1/trading/info/demo/portfolio-breakdown", label: "Demo Portfolio Breakdown (/v1-dash)" },
       { path: "/api/v1/trading/info/demo/pnl", label: "eToro Demo PnL (/v1/pnl)" },
       { path: "/api/v2/trading/info/demo/positions", label: "eToro Positions (/v2/positions)" },
       { path: "/api/v2/trading/execution/demo/orders", label: "eToro Demo Orders (/v2/orders)" }
@@ -104,8 +107,8 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     let fetchSuccess = false;
     let loadedPositions = [];
     let diagnosticLogs = [
-      `[${timestamp}] 🔍 START FETCHING HOLDINGS from eToro API...`,
-      `[${timestamp}] 🔑 Auth Headers: x-api-key=${maskedPub} | x-request-id=${requestId}`
+      `[${timestamp}] 🔍 FETCHING DEMO PORTFOLIO BREAKDOWN from eToro API...`,
+      `[${timestamp}] 🔑 Credentials: x-api-key=${maskedPub} | request-id=${requestId}`
     ];
 
     for (const ep of candidateEndpoints) {
@@ -138,7 +141,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
             const rawItems = Array.isArray(data) 
               ? data 
-              : (data.pnl || data.openPositions || data.positions || data.Positions || data.portfolio || data.orders || data.items || []);
+              : (data.portfolioBreakdown || data.breakdown || data.pnl || data.openPositions || data.positions || data.Positions || data.portfolio || data.orders || data.items || []);
 
             fetchSuccess = true;
             loadedPositions = rawItems.map(pos => {
@@ -152,21 +155,21 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               };
             });
 
-            diagnosticLogs.push(`[${timestamp}] 🎉 Synced ${loadedPositions.length} position(s) from eToro.`);
+            diagnosticLogs.push(`[${timestamp}] 🎉 Synced ${loadedPositions.length} position(s) from eToro Demo Portfolio.`);
             break;
           } else {
             const errTxt = await response.text().catch(() => "No response body");
             diagnosticLogs.push(`[${timestamp}] ❌ HTTP ${response.status} (${route.name} -> ${ep.label}): ${errTxt.substring(0, 100)}`);
           }
         } catch (err) {
-          diagnosticLogs.push(`[${timestamp}] ⚠️ Network/CORS Error (${route.name} -> ${ep.label}): ${err.message || "Failed to fetch"}`);
+          diagnosticLogs.push(`[${timestamp}] ⚠️ Network/CORS Exception (${route.name} -> ${ep.label}): ${err.message || "Failed to fetch"}`);
         }
       }
     }
 
     if (fetchSuccess) {
       setAgentPortfolio(loadedPositions);
-      setAuthSuccess(`eToro Connected! Synced ${loadedPositions.length} open position(s) from your eToro Demo Portfolio.`);
+      setAuthSuccess(`eToro Connected! Synced ${loadedPositions.length} open position(s) from your eToro Demo Portfolio Breakdown.`);
       onUpdateEtoroConfig({
         public_key: cleanPub,
         private_key: cleanPriv,
@@ -180,7 +183,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       diagnosticLogs.push(`[${timestamp}] 🔒 Keys verified for AI Strategy execution.`);
     }
 
-    diagnosticLogs.push(`[${timestamp}] --- END FETCH HOLDINGS DIAGNOSTICS ---`);
+    diagnosticLogs.push(`[${timestamp}] --- END DEMO PORTFOLIO BREAKDOWN DIAGNOSTICS ---`);
     setLogs(prev => [...diagnosticLogs, ...prev].slice(0, 60));
     setIsRefreshing(false);
   };
