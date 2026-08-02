@@ -54,6 +54,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     };
 
     let logText = "";
+    let tradeSuccess = false;
     try {
       // Connect using the eToro API endpoint
       const response = await fetch("https://api.etoro.com/api/v2/trading/execution/orders", {
@@ -65,37 +66,40 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       if (response.ok) {
         const data = await response.json();
         logText = `[${timestamp}] eToro API Success: Order ID ${data.orderId || "77810"} created. ${action.toUpperCase()} ${symbol} for $${amountVal} USD.`;
+        tradeSuccess = true;
       } else {
         const errText = await response.text();
-        logText = `[${timestamp}] eToro API connection status ${response.status}: ${errText || "Unauthorized"}. Falling back to sandbox simulation...`;
+        logText = `[${timestamp}] eToro API Connection Error (${response.status}): ${errText || "Resource not found"}. Order not executed.`;
       }
     } catch (err) {
-      logText = `[${timestamp}] eToro API network call attempted to https://api.etoro.com. Connection status: completed (CORS/SSL checked). Executing sandbox trade...`;
+      logText = `[${timestamp}] eToro API Network/CORS Error: Failed to connect to https://api.etoro.com. Order not executed.`;
     }
 
-    // Synchronously compute next portfolio
-    const next = agentPortfolio.map(item => ({ ...item }));
-    const existing = next.find(p => p.symbol === symbol);
-    const sObj = stocks.find(s => s.symbol === symbol) || { price: symbol === "BTC" ? 64500 : 100 };
-    const sharesCount = Number((amountVal / sObj.price).toFixed(4));
-
-    if (action.toUpperCase() === "BUY") {
-      if (existing) {
-        existing.shares = Number((existing.shares + sharesCount).toFixed(4));
-      } else {
-        next.push({ symbol: symbol, shares: sharesCount, avgCost: sObj.price });
-      }
-    } else if (action.toUpperCase() === "SELL") {
-      if (existing) {
-        existing.shares = Number(Math.max(0, existing.shares - sharesCount).toFixed(4));
-      }
-    }
-    const nextPortfolio = next.filter(p => p.shares > 0);
     const nextLogs = [logText, ...logs].slice(0, 50);
-
-    // Update local state
-    setAgentPortfolio(nextPortfolio);
     setLogs(nextLogs);
+
+    let nextPortfolio = agentPortfolio;
+    if (tradeSuccess) {
+      // Synchronously compute next portfolio
+      const next = agentPortfolio.map(item => ({ ...item }));
+      const existing = next.find(p => p.symbol === symbol);
+      const sObj = stocks.find(s => s.symbol === symbol) || { price: symbol === "BTC" ? 64500 : 100 };
+      const sharesCount = Number((amountVal / sObj.price).toFixed(4));
+
+      if (action.toUpperCase() === "BUY") {
+        if (existing) {
+          existing.shares = Number((existing.shares + sharesCount).toFixed(4));
+        } else {
+          next.push({ symbol: symbol, shares: sharesCount, avgCost: sObj.price });
+        }
+      } else if (action.toUpperCase() === "SELL") {
+        if (existing) {
+          existing.shares = Number(Math.max(0, existing.shares - sharesCount).toFixed(4));
+        }
+      }
+      nextPortfolio = next.filter(p => p.shares > 0);
+      setAgentPortfolio(nextPortfolio);
+    }
 
     // Sync changes to cloud database immediately
     onUpdateEtoroConfig({
