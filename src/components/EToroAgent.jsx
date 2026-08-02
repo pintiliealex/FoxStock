@@ -67,7 +67,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     totalValue
   ];
 
-  // Fetch holdings/positions directly from eToro API
+  // Fetch holdings/positions directly from eToro API (Primary PnL Endpoint: /api/v1/trading/info/demo/pnl)
   const fetchEtoroHoldings = async () => {
     setAuthError("");
     setAuthSuccess("");
@@ -94,7 +94,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json"
     };
 
+    // Official eToro API Demo PnL & Positions endpoints
     const candidateEndpoints = [
+      { path: "/api/v1/trading/info/demo/pnl", label: "eToro Demo PnL" },
       { path: "/api/v2/trading/info/demo/positions", label: "eToro Positions" },
       { path: "/api/v2/trading/execution/demo/orders", label: "eToro Demo Orders" }
     ];
@@ -127,7 +129,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             const data = await response.json();
             const rawItems = Array.isArray(data) 
               ? data 
-              : (data.positions || data.Positions || data.portfolio || data.orders || data.items || []);
+              : (data.pnl || data.openPositions || data.positions || data.Positions || data.portfolio || data.orders || data.items || []);
 
             fetchSuccess = true;
             loadedPositions = rawItems.map(pos => {
@@ -141,7 +143,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               };
             });
 
-            diagnosticLogs.push(`[${timestamp}] eToro Positions HTTP 200 OK (${route.name}): Synced ${loadedPositions.length} position(s).`);
+            diagnosticLogs.push(`[${timestamp}] eToro PnL Sync HTTP 200 OK (${route.name} -> ${ep.label}): Synced ${loadedPositions.length} position(s).`);
             break;
           }
         } catch (err) {
@@ -152,7 +154,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
     if (fetchSuccess) {
       setAgentPortfolio(loadedPositions);
-      setAuthSuccess(`eToro Connected! Synced ${loadedPositions.length} open position(s) from your eToro Demo Portfolio.`);
+      setAuthSuccess(`eToro Connected! Synced ${loadedPositions.length} open position(s) from your eToro Demo PnL.`);
       onUpdateEtoroConfig({
         public_key: cleanPub,
         private_key: cleanPriv,
@@ -166,7 +168,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       setAuthSuccess("eToro Keys Authenticated & Verified! (Active positions synced for AI Trading Agent).");
       setLogs(prev => [
         `[${timestamp}] eToro API Verified: Public & Private Keys authenticated. Agent ready for strategy execution.`,
-        `[${timestamp}] Target Endpoint: https://public-api.etoro.com/api/v2/trading/execution/demo/orders`,
+        `[${timestamp}] Primary PnL Endpoint: https://public-api.etoro.com/api/v1/trading/info/demo/pnl`,
         `[${timestamp}] Authenticated Key Signature: x-api-key=${maskedPub} | request-id=${requestId}`,
         ...prev
       ].slice(0, 50));
