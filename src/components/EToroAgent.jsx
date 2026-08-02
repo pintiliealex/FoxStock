@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Play, Pause, Settings, Key, Code, Briefcase, Database, Activity, Sparkles, TrendingUp, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
+import { Play, Pause, Settings, Key, Code, Briefcase, Database, Activity, Sparkles, TrendingUp, AlertCircle, CheckCircle, Loader2, Trash2 } from "lucide-react";
 import Sparkline from "./Sparkline";
 
 // Official eToro numeric instrumentId mapping lookup table
@@ -125,7 +125,6 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
           if (response.ok) {
             const data = await response.json();
-            const rawKeys = Object.keys(data || {});
             const rawItems = Array.isArray(data) 
               ? data 
               : (data.positions || data.Positions || data.portfolio || data.orders || data.items || []);
@@ -144,8 +143,6 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
             diagnosticLogs.push(`[${timestamp}] eToro Positions HTTP 200 OK (${route.name}): Synced ${loadedPositions.length} position(s).`);
             break;
-          } else {
-            diagnosticLogs.push(`[${timestamp}] eToro API Response: HTTP ${response.status} (${ep.label}).`);
           }
         } catch (err) {
           // Direct browser CORS restriction on third-party domain
@@ -176,6 +173,21 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     }
 
     setIsRefreshing(false);
+  };
+
+  // Clear holdings list manually
+  const handleClearHoldings = () => {
+    setAgentPortfolio([]);
+    onUpdateEtoroConfig({
+      public_key: publicKey.trim(),
+      private_key: privateKey.trim(),
+      strategy_prompt: strategyPrompt,
+      check_interval: parseInt(checkInterval) || 5,
+      agent_portfolio: [],
+      trade_logs: logs
+    });
+    const timestamp = new Date().toLocaleTimeString();
+    setLogs(prev => [`[${timestamp}] eToro Agent Portfolio Holdings cleared.`, ...prev].slice(0, 50));
   };
 
   // Initial fetch on mount
@@ -647,6 +659,24 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             <h3 style={{ fontSize: "1.1rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px" }}>
               <Briefcase size={18} /> eToro Agent Portfolio Holdings
             </h3>
+            {agentPortfolio.length > 0 && (
+              <button 
+                type="button" 
+                onClick={handleClearHoldings}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#ef4444",
+                  fontSize: "0.8rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px"
+                }}
+              >
+                <Trash2 size={14} /> Clear List
+              </button>
+            )}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
