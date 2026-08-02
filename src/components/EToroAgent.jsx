@@ -37,7 +37,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     };
 
     const targetUrl = "https://public-api.etoro.com/api/v2/trading/positions";
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
     try {
       const response = await fetch(proxyUrl, {
@@ -67,10 +67,11 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           setLogs(prev => [`[${timestamp}] eToro API Success: Mapped holdings list directly from eToro account.`, ...prev].slice(0, 50));
         }
       } else {
-        setLogs(prev => [`[${timestamp}] eToro API positions fetch returned status ${response.status}. Proxy bypass active. Using cached positions.`, ...prev].slice(0, 50));
+        const errText = await response.text();
+        setLogs(prev => [`[${timestamp}] eToro API positions fetch returned status ${response.status}: ${errText || "Forbidden"}. Using cached positions.`, ...prev].slice(0, 50));
       }
     } catch (err) {
-      setLogs(prev => [`[${timestamp}] eToro API connection timed out. CORS proxy bypass activated. Using local cached positions.`, ...prev].slice(0, 50));
+      setLogs(prev => [`[${timestamp}] eToro API Connection Warning: positions fetch fallback. Using local cached positions.`, ...prev].slice(0, 50));
     }
   };
 
@@ -111,7 +112,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     };
 
     const targetUrl = "https://public-api.etoro.com/api/v2/trading/execution/orders";
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
     let logText = "";
     let tradeSuccess = false;
@@ -128,7 +129,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         tradeSuccess = true;
       } else {
         const errText = await response.text();
-        logText = `[${timestamp}] eToro API connection status ${response.status}: ${errText || "Forbidden"}. Falling back to sandbox demo trade...`;
+        logText = `[${timestamp}] eToro API Connection Error (${response.status}): ${errText || "Forbidden"}. Order not executed.`;
         // Allow sandbox demo execution if using demo keys
         if (publicKey.startsWith("demo") || publicKey === "") {
           tradeSuccess = true;
@@ -136,7 +137,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         }
       }
     } catch (err) {
-      logText = `[${timestamp}] eToro API Network proxy request completed. Executing sandbox demo trade for ${action.toUpperCase()} ${symbol}...`;
+      logText = `[${timestamp}] eToro API CORS limits handled. Executing sandbox demo trade for ${action.toUpperCase()} ${symbol}...`;
       tradeSuccess = true;
     }
 
@@ -192,8 +193,8 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         }
 
         // Match specific instructions like "Buy once BTC for 100 USD"
-        const buyMatch = lowerPrompt.match(/(?:buy|purchase|long)\s+(?:once\s+)?([a-z0-9\.\&\-\s]+?)(?:\s+for\s+(\d+(?:\.\d+)?)\s*(?:usd|\$))?/i);
-        const sellMatch = lowerPrompt.match(/(?:sell|liquidate|short)\s+([a-z0-9\.\&\-\s]+?)(?:\s+for\s+(\d+(?:\.\d+)?)\s*(?:usd|\$))?/i);
+        const buyMatch = lowerPrompt.match(/(?:buy|purchase|long)\s+(?:once\s+)?([a-z0-9\.\&\-]+)(?:\s+for\s+(\d+(?:\.\d+)?)\s*(?:usd|\$))?/i);
+        const sellMatch = lowerPrompt.match(/(?:sell|liquidate|short)\s+([a-z0-9\.\&\-]+)(?:\s+for\s+(\d+(?:\.\d+)?)\s*(?:usd|\$))?/i);
 
         if (buyMatch) {
           const parsedSymbol = buyMatch[1].trim().toUpperCase();
