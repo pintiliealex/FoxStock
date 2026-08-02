@@ -191,6 +191,29 @@ export default function App() {
     return () => clearInterval(syncInterval);
   }, []);
 
+  // Decrypt eToro credentials from cached current user on startup
+  useEffect(() => {
+    const initDec = async () => {
+      if (currentUser && currentUser.etoroConfig) {
+        const rawConf = currentUser.etoroConfig;
+        let decConf = { ...rawConf };
+        const userEmail = currentUser.email.toLowerCase();
+        try {
+          if (decConf.public_key && decConf.public_key.startsWith("ct_")) {
+            decConf.public_key = await decryptText(decConf.public_key, userEmail);
+          }
+          if (decConf.private_key && decConf.private_key.startsWith("ct_")) {
+            decConf.private_key = await decryptText(decConf.private_key, userEmail);
+          }
+          setEtoroConfig(decConf);
+        } catch (e) {
+          console.warn("Failed to decrypt startup keys:", e);
+        }
+      }
+    };
+    initDec();
+  }, [currentUser?.email]);
+
   // Handle automatic account activation and login when redirected from verification email
   useEffect(() => {
     const handleAuthRedirect = async (session) => {
@@ -460,6 +483,28 @@ export default function App() {
         return { error: "Your account has been blocked by an administrator." };
       }
 
+      // Decrypt eToro Config keys immediately on login
+      let decEtoroConfig = {
+        public_key: "",
+        private_key: "",
+        portfolio_id: "",
+        strategy_prompt: "Buy tech stocks with rating score >= 4.2 when they drop below 52-week high by 10%.",
+        check_interval: 5,
+        agent_portfolio: [],
+        trade_logs: []
+      };
+      if (data && data.etoro_config) {
+        const rawConf = data.etoro_config;
+        decEtoroConfig = { ...decEtoroConfig, ...rawConf };
+        if (decEtoroConfig.public_key) {
+          decEtoroConfig.public_key = await decryptText(decEtoroConfig.public_key, email.toLowerCase());
+        }
+        if (decEtoroConfig.private_key) {
+          decEtoroConfig.private_key = await decryptText(decEtoroConfig.private_key, email.toLowerCase());
+        }
+      }
+      setEtoroConfig(decEtoroConfig);
+
       const formattedUser = {
         ...(data || {
           email: email.toLowerCase(),
@@ -470,7 +515,8 @@ export default function App() {
           triggered_alerts: []
         }),
         verificationCode: (data && data.verification_code) || "",
-        triggeredAlerts: (data && data.triggered_alerts) || []
+        triggeredAlerts: (data && data.triggered_alerts) || [],
+        etoroConfig: decEtoroConfig
       };
 
       setCurrentUser(formattedUser);
