@@ -67,6 +67,41 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     totalValue
   ];
 
+  // Helper function to extract array of positions from any eToro API payload structure
+  const extractPositionsArray = (data) => {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+
+    // Check all known eToro payload property keys
+    const candidateKeys = [
+      "clientPositions", "openPositions", "positions", "Positions", 
+      "portfolioBreakdown", "breakdown", "pnl", "pnlPositions", 
+      "tradePositions", "portfolio", "orders", "items", "data"
+    ];
+
+    for (const key of candidateKeys) {
+      if (data[key] && Array.isArray(data[key]) && data[key].length > 0) {
+        return data[key];
+      }
+    }
+
+    // Recursively find the first array property in the object
+    for (const key of Object.keys(data)) {
+      if (Array.isArray(data[key]) && data[key].length > 0) {
+        return data[key];
+      }
+    }
+
+    // Fallback if data is object with properties or fallback keys exist
+    for (const key of candidateKeys) {
+      if (data[key] && Array.isArray(data[key])) {
+        return data[key];
+      }
+    }
+
+    return [];
+  };
+
   // Fetch holdings/positions directly from eToro API via server proxy & direct routes
   const fetchEtoroHoldings = async () => {
     setAuthError("");
@@ -97,11 +132,13 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     const endpoints = [
       `/etoro-api/api/v1/trading/info/demo/portfolio/breakdown?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`,
       `/etoro-api/api/v1/trading/info/demo/pnl?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`,
+      `/etoro-api/api/v2/trading/info/demo/positions?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`,
       `https://public-api.etoro.com/api/v1/trading/info/demo/portfolio/breakdown?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`
     ];
 
     let fetchSuccess = false;
     let loadedPositions = [];
+    let payloadLogSnippet = "";
 
     for (const targetUrl of endpoints) {
       if (fetchSuccess) break;
@@ -109,9 +146,8 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         const response = await fetch(targetUrl, { method: "GET", headers: headers });
         if (response.ok) {
           const data = await response.json();
-          const rawItems = Array.isArray(data) 
-            ? data 
-            : (data.portfolioBreakdown || data.breakdown || data.pnl || data.openPositions || data.positions || data.items || []);
+          payloadLogSnippet = JSON.stringify(data).substring(0, 140);
+          const rawItems = extractPositionsArray(data);
 
           fetchSuccess = true;
           loadedPositions = rawItems.map(pos => {
@@ -120,8 +156,8 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
             return {
               symbol: matchedTicker.toUpperCase(),
-              shares: Number(pos.shares || pos.Shares || pos.units || pos.Units || pos.amount || pos.Amount || 1),
-              avgCost: Number(pos.avgCost || pos.AvgCost || pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || 100)
+              shares: Number(pos.shares || pos.Shares || pos.units || pos.Units || pos.amount || pos.Amount || pos.volume || 1),
+              avgCost: Number(pos.avgCost || pos.AvgCost || pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || pos.price || 100)
             };
           });
           break;
@@ -142,7 +178,11 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         agent_portfolio: loadedPositions,
         trade_logs: logs
       });
-      setLogs(prev => [`[${timestamp}] eToro API Success (200): Synced ${loadedPositions.length} position(s) from eToro Demo Portfolio.`, ...prev].slice(0, 50));
+      setLogs(prev => [
+        `[${timestamp}] eToro API Success (200): Synced ${loadedPositions.length} open position(s).`,
+        `[${timestamp}] eToro Data Payload: ${payloadLogSnippet}`,
+        ...prev
+      ].slice(0, 50));
     } else {
       setAuthSuccess("eToro Keys Authenticated & Verified! (Active positions synced for AI Trading Agent).");
       setLogs(prev => [
