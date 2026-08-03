@@ -48,6 +48,27 @@ const COMPANY_NAME_MAP = {
   "HOOD": "Robinhood Markets"
 };
 
+// Asset Real Logo Image Map
+const ASSET_LOGO_MAP = {
+  "SOFI": "https://financialmodelingprep.com/image-stock/SOFI.png",
+  "BTC": "https://assets.coincap.io/assets/icons/btc@2x.png",
+  "ETH": "https://assets.coincap.io/assets/icons/eth@2x.png",
+  "AAPL": "https://financialmodelingprep.com/image-stock/AAPL.png",
+  "TSLA": "https://financialmodelingprep.com/image-stock/TSLA.png",
+  "NVDA": "https://financialmodelingprep.com/image-stock/NVDA.png",
+  "MSFT": "https://financialmodelingprep.com/image-stock/MSFT.png",
+  "AMZN": "https://financialmodelingprep.com/image-stock/AMZN.png",
+  "GOOGL": "https://financialmodelingprep.com/image-stock/GOOGL.png",
+  "META": "https://financialmodelingprep.com/image-stock/META.png",
+  "NFLX": "https://financialmodelingprep.com/image-stock/NFLX.png",
+  "AMD": "https://financialmodelingprep.com/image-stock/AMD.png",
+  "PLTR": "https://financialmodelingprep.com/image-stock/PLTR.png",
+  "COIN": "https://financialmodelingprep.com/image-stock/COIN.png",
+  "INTC": "https://financialmodelingprep.com/image-stock/INTC.png",
+  "BAC": "https://financialmodelingprep.com/image-stock/BAC.png",
+  "HOOD": "https://financialmodelingprep.com/image-stock/HOOD.png"
+};
+
 export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig }) {
   const [publicKey, setPublicKey] = useState(etoroConfig.public_key || "");
   const [privateKey, setPrivateKey] = useState(etoroConfig.private_key || "");
@@ -81,7 +102,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
   const totalValue = agentPortfolio.reduce((sum, item) => {
     const sObj = stocks.find(s => s.symbol === item.symbol);
     const curPrice = item.currentPrice || (sObj ? sObj.price : (item.symbol === "BTC" ? 64500 : item.avgCost));
-    return sum + (item.shares * curPrice);
+    return sum + (item.netValue || (item.shares * curPrice));
   }, 0);
 
   // Generate NAV history dynamically based on current totalValue to keep chart and stats synced!
@@ -198,7 +219,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
         if (response.ok) {
           const data = await response.json();
-          payloadLogSnippet = JSON.stringify(data).substring(0, 200);
+          payloadLogSnippet = JSON.stringify(data).substring(0, 250);
           const rawItems = extractPositionsArray(data);
 
           fetchSuccess = true;
@@ -225,15 +246,17 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               pos.currentRate || pos.currentPrice || pos.rate || pos.Rate || openPrice
             );
 
+            // Invested Principal Amount in Account Currency
+            const investedAmount = Number(
+              pos.initialAmountInAccountCurrency || pos.amountInAccountCurrency || 
+              pos.investedAmount || pos.amount || pos.Amount || 100
+            );
+
             // Units / Shares count
             let shares = Number(pos.units || pos.Units || pos.shares || pos.Shares || pos.volume || 0);
 
             // If units is 0 or missing, compute from invested dollar amount / openPrice
             if (!shares || shares === 0) {
-              const investedAmount = Number(
-                pos.initialAmountInAccountCurrency || pos.amountInAccountCurrency || 
-                pos.investedAmount || pos.amount || pos.Amount || 100
-              );
               shares = openPrice > 0 ? Number((investedAmount / openPrice).toFixed(5)) : 1;
             } else {
               shares = Number(shares.toFixed(5));
@@ -244,12 +267,29 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
             // Net position value in account currency
             const netValue = Number(
-              pos.exposureInAccountCurrency || pos.currentAmount || (shares * currentPrice)
+              pos.unrealizedPnL?.exposureInAccountCurrency || pos.exposureInAccountCurrency || 
+              pos.currentAmount || (investedAmount + (pos.unrealizedPnL?.pnL || pos.pnl || 0)) || (shares * currentPrice)
             );
 
-            // P/L percent calculation
-            const pnlVal = pos.unrealizedPnL?.pnL || pos.pnl || pos.pnL || ((currentPrice - openPrice) * shares);
-            const pnlPercent = openPrice > 0 ? Number((((currentPrice - openPrice) / openPrice) * 100).toFixed(2)) : 0;
+            // P/L dollar value & percentage
+            const pnlVal = Number(
+              pos.unrealizedPnL?.pnL !== undefined ? pos.unrealizedPnL.pnL :
+              pos.pnl !== undefined ? pos.pnl :
+              pos.pnL !== undefined ? pos.pnL :
+              (netValue - investedAmount)
+            );
+
+            // Calculate P/L % relative to initial invested principal amount
+            let pnlPercent = 0;
+            if (pos.unrealizedPnL?.pnLPercentage !== undefined) {
+              pnlPercent = Number(pos.unrealizedPnL.pnLPercentage);
+            } else if (pos.pnlPercent !== undefined) {
+              pnlPercent = Number(pos.pnlPercent);
+            } else if (investedAmount > 0) {
+              pnlPercent = Number(((pnlVal / investedAmount) * 100).toFixed(2));
+            } else if (openPrice > 0) {
+              pnlPercent = Number((((currentPrice - openPrice) / openPrice) * 100).toFixed(2));
+            }
 
             return {
               symbol: cleanSymbol,
@@ -258,6 +298,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
               avgCost: openPrice,
               currentPrice: currentPrice,
               netValue: netValue,
+              investedAmount: investedAmount,
               direction: direction,
               pnlVal: pnlVal,
               pnlPercent: pnlPercent
@@ -426,6 +467,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       if (action.toUpperCase() === "BUY") {
         if (existing) {
           existing.shares = Number((existing.shares + sharesCount).toFixed(5));
+          existing.netValue = Number((existing.netValue + amountVal).toFixed(2));
         } else {
           next.push({ 
             symbol: symbol, 
@@ -434,6 +476,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             avgCost: sObj.price, 
             currentPrice: sObj.price, 
             netValue: amountVal,
+            investedAmount: amountVal,
             direction: "Long",
             pnlVal: 0,
             pnlPercent: 0
@@ -834,9 +877,20 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
                   const stock = stocks.find(s => s.symbol === item.symbol);
                   const curPrice = item.currentPrice || (stock ? stock.price : (item.symbol === "BTC" ? 64500 : item.avgCost));
                   const value = item.netValue || (item.shares * curPrice);
-                  const pnlPct = item.pnlPercent !== undefined ? item.pnlPercent : (((curPrice - item.avgCost) / item.avgCost) * 100);
+                  
+                  // Compute P/L % relative to invested principal amount or avgCost
+                  const pnlPct = item.pnlPercent !== undefined 
+                    ? item.pnlPercent 
+                    : (item.investedAmount > 0 
+                      ? (((value - item.investedAmount) / item.investedAmount) * 100)
+                      : (((curPrice - item.avgCost) / item.avgCost) * 100));
+
                   const isPos = pnlPct >= 0;
                   const companyName = COMPANY_NAME_MAP[item.symbol] || item.name || `${item.symbol} Corp`;
+                  const logoUrl = ASSET_LOGO_MAP[item.symbol];
+
+                  // Daily Price Change calculation
+                  const priceDiff = (curPrice * (pnlPct / 100));
 
                   return (
                     <tr 
@@ -847,24 +901,40 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
                         borderRadius: "8px"
                       }}
                     >
-                      {/* Asset & Icon */}
+                      {/* Asset & Real Logo Icon */}
                       <td style={{ padding: "14px 12px", borderRadius: "8px 0 0 8px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                          <div style={{ 
-                            width: "36px", 
-                            height: "36px", 
-                            borderRadius: "8px", 
-                            backgroundColor: "#00C4FF", 
-                            display: "flex", 
-                            alignItems: "center", 
-                            justifyContent: "center",
-                            color: "#fff",
-                            fontWeight: "700",
-                            fontSize: "0.9rem",
-                            flexShrink: 0
-                          }}>
-                            {item.symbol.substring(0, 2)}
-                          </div>
+                          {logoUrl ? (
+                            <img 
+                              src={logoUrl} 
+                              alt={item.symbol}
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                              style={{ 
+                                width: "36px", 
+                                height: "36px", 
+                                borderRadius: "8px", 
+                                objectFit: "contain",
+                                backgroundColor: "rgba(255,255,255,0.05)",
+                                padding: "4px"
+                              }} 
+                            />
+                          ) : (
+                            <div style={{ 
+                              width: "36px", 
+                              height: "36px", 
+                              borderRadius: "8px", 
+                              backgroundColor: "#00C4FF", 
+                              display: "flex", 
+                              alignItems: "center", 
+                              justifyContent: "center",
+                              color: "#fff",
+                              fontWeight: "700",
+                              fontSize: "0.9rem",
+                              flexShrink: 0
+                            }}>
+                              {item.symbol.substring(0, 2)}
+                            </div>
+                          )}
                           <div>
                             <span style={{ fontWeight: "700", color: "#fff", fontSize: "0.95rem", display: "block" }}>
                               {item.symbol}
@@ -882,7 +952,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
                           {curPrice.toFixed(2)}
                         </div>
                         <div style={{ fontSize: "0.75rem", color: isPos ? "#22c55e" : "#ef4444", marginTop: "2px" }}>
-                          {isPos ? "+" : ""}{(curPrice * (pnlPct / 100)).toFixed(2)} ({isPos ? "+" : ""}{pnlPct.toFixed(2)}%)
+                          {isPos ? "+" : ""}{priceDiff.toFixed(2)} ({isPos ? "+" : ""}{pnlPct.toFixed(2)}%)
                         </div>
                       </td>
 
