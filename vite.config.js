@@ -16,6 +16,18 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/etoro-api/, '')
+      },
+      '/etoro-main': {
+        target: 'https://api.etoro.com',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/etoro-main/, '')
+      },
+      '/etoro-open': {
+        target: 'https://open-api.etoro.com',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/etoro-open/, '')
       }
     }
   }

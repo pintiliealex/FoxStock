@@ -67,7 +67,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     totalValue
   ];
 
-  // Fetch holdings/positions directly from eToro API via local server proxy & direct fallback
+  // Fetch holdings/positions directly from eToro API across candidate base domains
   const fetchEtoroHoldings = async () => {
     setAuthError("");
     setAuthSuccess("");
@@ -94,12 +94,13 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json"
     };
 
-    // Server proxy & direct candidate endpoints for Demo Portfolio Breakdown
+    // Candidate base domain routes for eToro Demo Portfolio Breakdown
     const candidateEndpoints = [
-      { path: "/etoro-api/api/v1/trading/info/demo/portfolio/breakdown", label: "Server Proxy Portfolio Breakdown (/v1/...)" },
-      { path: "/etoro-api/api/v1/trading/info/demo/pnl", label: "Server Proxy Demo PnL (/v1/pnl)" },
-      { path: "/etoro-api/api/v2/trading/info/demo/positions", label: "Server Proxy Positions (/v2/...)" },
-      { path: "https://public-api.etoro.com/api/v1/trading/info/demo/portfolio/breakdown", label: "Direct Demo Portfolio Breakdown" }
+      { path: "/etoro-main/api/v1/trading/info/demo/portfolio/breakdown", label: "eToro Main API (/v1/portfolio/breakdown)" },
+      { path: "/etoro-open/api/v1/trading/info/demo/portfolio/breakdown", label: "eToro Open API (/v1/portfolio/breakdown)" },
+      { path: "/etoro-api/api/v1/trading/info/demo/portfolio/breakdown", label: "eToro Public API (/v1/portfolio/breakdown)" },
+      { path: "/etoro-main/api/v1/trading/info/demo/pnl", label: "eToro Main Demo PnL" },
+      { path: "/etoro-main/api/v2/trading/info/demo/positions", label: "eToro Main Positions" }
     ];
 
     let fetchSuccess = false;
@@ -112,14 +113,10 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     for (const ep of candidateEndpoints) {
       if (fetchSuccess) break;
 
-      const targetUrl = ep.path.startsWith("http") 
-        ? `${ep.path}?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`
-        : ep.path;
-
       diagnosticLogs.push(`[${timestamp}] 🛰️ Querying ${ep.label}...`);
 
       try {
-        const response = await fetch(targetUrl, {
+        const response = await fetch(ep.path, {
           method: "GET",
           headers: headers
         });
@@ -216,7 +213,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     fetchEtoroHoldings();
   };
 
-  // eToro API order execution (Demo Sandbox URL: /etoro-api/api/v2/trading/execution/demo/orders)
+  // eToro API order execution
   const executeEtoroTrade = async (symbol, action, amountVal) => {
     const timestamp = new Date().toLocaleTimeString();
     const requestId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -244,8 +241,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     };
 
     const targetEndpoints = [
-      { url: "/etoro-api/api/v2/trading/execution/demo/orders", label: "Server Proxy Order Endpoint" },
-      { url: "https://public-api.etoro.com/api/v2/trading/execution/demo/orders", label: "Direct Order Endpoint" }
+      { url: "/etoro-main/api/v2/trading/execution/demo/orders", label: "eToro Main Order Endpoint" },
+      { url: "/etoro-open/api/v2/trading/execution/demo/orders", label: "eToro Open Order Endpoint" },
+      { url: "/etoro-api/api/v2/trading/execution/demo/orders", label: "eToro Public Order Endpoint" }
     ];
 
     let diagnosticLogs = [
