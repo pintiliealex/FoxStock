@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Play, Pause, Settings, Key, Code, Briefcase, Database, Activity, Sparkles, TrendingUp, AlertCircle, CheckCircle, Loader2, Trash2 } from "lucide-react";
+import { Play, Pause, Settings, Key, Code, Briefcase, Database, Activity, Sparkles, TrendingUp, AlertCircle, CheckCircle, Loader2, Trash2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import Sparkline from "./Sparkline";
 
 // Official eToro numeric instrumentId mapping lookup table
@@ -18,7 +18,34 @@ const ETORO_INSTRUMENT_MAP = {
   "JPM": 1010,
   "V": 1012,
   "WMT": 1015,
-  "DIS": 1018
+  "DIS": 1018,
+  "SOFI": 9255,
+  "PLTR": 6224,
+  "COIN": 6125,
+  "INTC": 1008,
+  "BAC": 1011,
+  "HOOD": 9260
+};
+
+// Company full names dictionary
+const COMPANY_NAME_MAP = {
+  "SOFI": "SoFi Technologies Inc",
+  "BTC": "Bitcoin (BTC)",
+  "ETH": "Ethereum (ETH)",
+  "AAPL": "Apple Inc",
+  "TSLA": "Tesla Inc",
+  "NVDA": "NVIDIA Corp",
+  "MSFT": "Microsoft Corp",
+  "AMZN": "Amazon.com Inc",
+  "GOOGL": "Alphabet Inc",
+  "META": "Meta Platforms Inc",
+  "NFLX": "Netflix Inc",
+  "AMD": "Advanced Micro Devices",
+  "PLTR": "Palantir Technologies",
+  "COIN": "Coinbase Global Inc",
+  "INTC": "Intel Corp",
+  "BAC": "Bank of America Corp",
+  "HOOD": "Robinhood Markets"
 };
 
 export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig }) {
@@ -177,8 +204,15 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           fetchSuccess = true;
           loadedPositions = rawItems.map(pos => {
             const instId = pos.instrumentID || pos.instrumentId || pos.InstrumentID || pos.InstrumentId;
-            const matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId) 
-              || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
+            
+            // Symbol resolution
+            let matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId);
+            if (!matchedTicker) {
+              matchedTicker = pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.symbolName || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
+            }
+
+            const cleanSymbol = matchedTicker.toString().toUpperCase().replace(/^INSTR-/, "");
+            const companyName = COMPANY_NAME_MAP[cleanSymbol] || pos.instrumentName || pos.companyName || `${cleanSymbol} Corp`;
 
             // Open Rate / Purchase Price per Unit
             const openPrice = Number(
@@ -200,22 +234,33 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
                 pos.initialAmountInAccountCurrency || pos.amountInAccountCurrency || 
                 pos.investedAmount || pos.amount || pos.Amount || 100
               );
-              shares = openPrice > 0 ? Number((investedAmount / openPrice).toFixed(6)) : 1;
+              shares = openPrice > 0 ? Number((investedAmount / openPrice).toFixed(5)) : 1;
             } else {
-              shares = Number(shares.toFixed(6));
+              shares = Number(shares.toFixed(5));
             }
+
+            // Direction (Long / Short)
+            const direction = (pos.isBuy !== false && pos.isLong !== false) ? "Long" : "Short";
 
             // Net position value in account currency
             const netValue = Number(
               pos.exposureInAccountCurrency || pos.currentAmount || (shares * currentPrice)
             );
 
+            // P/L percent calculation
+            const pnlVal = pos.unrealizedPnL?.pnL || pos.pnl || pos.pnL || ((currentPrice - openPrice) * shares);
+            const pnlPercent = openPrice > 0 ? Number((((currentPrice - openPrice) / openPrice) * 100).toFixed(2)) : 0;
+
             return {
-              symbol: matchedTicker.toUpperCase(),
+              symbol: cleanSymbol,
+              name: companyName,
               shares: shares,
               avgCost: openPrice,
               currentPrice: currentPrice,
-              netValue: netValue
+              netValue: netValue,
+              direction: direction,
+              pnlVal: pnlVal,
+              pnlPercent: pnlPercent
             };
           });
           break;
@@ -376,17 +421,27 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       const next = agentPortfolio.map(item => ({ ...item }));
       const existing = next.find(p => p.symbol === symbol);
       const sObj = stocks.find(s => s.symbol === symbol) || { price: symbol === "BTC" ? 64500 : 100 };
-      const sharesCount = Number((amountVal / sObj.price).toFixed(4));
+      const sharesCount = Number((amountVal / sObj.price).toFixed(5));
 
       if (action.toUpperCase() === "BUY") {
         if (existing) {
-          existing.shares = Number((existing.shares + sharesCount).toFixed(4));
+          existing.shares = Number((existing.shares + sharesCount).toFixed(5));
         } else {
-          next.push({ symbol: symbol, shares: sharesCount, avgCost: sObj.price, currentPrice: sObj.price, netValue: amountVal });
+          next.push({ 
+            symbol: symbol, 
+            name: COMPANY_NAME_MAP[symbol] || `${symbol} Corp`,
+            shares: sharesCount, 
+            avgCost: sObj.price, 
+            currentPrice: sObj.price, 
+            netValue: amountVal,
+            direction: "Long",
+            pnlVal: 0,
+            pnlPercent: 0
+          });
         }
       } else if (action.toUpperCase() === "SELL") {
         if (existing) {
-          existing.shares = Number(Math.max(0, existing.shares - sharesCount).toFixed(4));
+          existing.shares = Number(Math.max(0, existing.shares - sharesCount).toFixed(5));
         }
       }
       nextPortfolio = next.filter(p => p.shares > 0);
@@ -722,11 +777,11 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       </div>
 
       {/* Agent Holdings vs Prompt Logs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))", gap: "28px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "28px" }}>
         
-        {/* Agent Holdings List */}
-        <div className="glass-panel" style={{ padding: "24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        {/* eToro Portfolio Holdings Table matching exact design specs */}
+        <div className="glass-panel" style={{ padding: "24px", overflowX: "auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
             <h3 style={{ fontSize: "1.1rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px" }}>
               <Briefcase size={18} /> eToro Agent Portfolio Holdings
             </h3>
@@ -750,53 +805,133 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             )}
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {agentPortfolio.map((item) => {
-              const stock = stocks.find(s => s.symbol === item.symbol);
-              const curPrice = item.currentPrice || (stock ? stock.price : (item.symbol === "BTC" ? 64500 : item.avgCost));
-              const value = item.netValue || (item.shares * curPrice);
+          {agentPortfolio.length > 0 ? (
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 10px", textAlign: "left", fontSize: "0.88rem" }}>
+              <thead>
+                <tr style={{ color: "#788796", fontSize: "0.8rem", fontWeight: "600" }}>
+                  <th style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    Asset ({agentPortfolio.length})
+                  </th>
+                  <th style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", textAlign: "center" }}>
+                    Price
+                  </th>
+                  <th style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", textAlign: "center" }}>
+                    Units
+                  </th>
+                  <th style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", textAlign: "center" }}>
+                    Avg. Open
+                  </th>
+                  <th style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", textAlign: "center" }}>
+                    P/L %
+                  </th>
+                  <th style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", textAlign: "right", color: "var(--color-primary)" }}>
+                    Net Value ▾
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {agentPortfolio.map((item) => {
+                  const stock = stocks.find(s => s.symbol === item.symbol);
+                  const curPrice = item.currentPrice || (stock ? stock.price : (item.symbol === "BTC" ? 64500 : item.avgCost));
+                  const value = item.netValue || (item.shares * curPrice);
+                  const pnlPct = item.pnlPercent !== undefined ? item.pnlPercent : (((curPrice - item.avgCost) / item.avgCost) * 100);
+                  const isPos = pnlPct >= 0;
+                  const companyName = COMPANY_NAME_MAP[item.symbol] || item.name || `${item.symbol} Corp`;
 
-              return (
-                <div 
-                  key={item.symbol} 
-                  style={{ 
-                    display: "flex", 
-                    justifyContent: "space-between", 
-                    alignItems: "center", 
-                    padding: "12px 16px", 
-                    borderRadius: "8px", 
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid var(--border-glass)" 
-                  }}
-                >
-                  <div style={{ textAlign: "left" }}>
-                    <span style={{ fontWeight: "700", color: "#fff", display: "block" }}>{item.symbol}</span>
-                    <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                      {item.shares} units @ avg cost ${item.avgCost.toFixed(2)}
-                    </span>
-                  </div>
+                  return (
+                    <tr 
+                      key={item.symbol} 
+                      style={{ 
+                        backgroundColor: "rgba(255,255,255,0.015)", 
+                        border: "1px solid var(--border-glass)",
+                        borderRadius: "8px"
+                      }}
+                    >
+                      {/* Asset & Icon */}
+                      <td style={{ padding: "14px 12px", borderRadius: "8px 0 0 8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div style={{ 
+                            width: "36px", 
+                            height: "36px", 
+                            borderRadius: "8px", 
+                            backgroundColor: "#00C4FF", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            justifyContent: "center",
+                            color: "#fff",
+                            fontWeight: "700",
+                            fontSize: "0.9rem",
+                            flexShrink: 0
+                          }}>
+                            {item.symbol.substring(0, 2)}
+                          </div>
+                          <div>
+                            <span style={{ fontWeight: "700", color: "#fff", fontSize: "0.95rem", display: "block" }}>
+                              {item.symbol}
+                            </span>
+                            <span style={{ fontSize: "0.75rem", color: "#8a99a8" }}>
+                              {companyName}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
 
-                  <div style={{ textAlign: "right" }}>
-                    <span style={{ fontWeight: "600", fontSize: "0.95rem" }}>
-                      ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                    <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginTop: "2px" }}>
-                      Current: ${curPrice.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-            {agentPortfolio.length === 0 && (
-              <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                {authError 
-                  ? authError 
-                  : (authSuccess || (publicKey && privateKey))
-                    ? "0 open positions returned from eToro Demo Portfolio."
-                    : "No active eToro holdings found. Please enter and save your eToro Public and Private keys."}
-              </span>
-            )}
-          </div>
+                      {/* Price */}
+                      <td style={{ padding: "14px 12px", textAlign: "center" }}>
+                        <div style={{ fontWeight: "600", color: "#fff" }}>
+                          {curPrice.toFixed(2)}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: isPos ? "#22c55e" : "#ef4444", marginTop: "2px" }}>
+                          {isPos ? "+" : ""}{(curPrice * (pnlPct / 100)).toFixed(2)} ({isPos ? "+" : ""}{pnlPct.toFixed(2)}%)
+                        </div>
+                      </td>
+
+                      {/* Units */}
+                      <td style={{ padding: "14px 12px", textAlign: "center" }}>
+                        <div style={{ fontWeight: "600", color: "#fff" }}>
+                          {item.shares}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "#8a99a8", marginTop: "2px" }}>
+                          {item.direction || "Long"}
+                        </div>
+                      </td>
+
+                      {/* Avg. Open */}
+                      <td style={{ padding: "14px 12px", textAlign: "center", fontWeight: "500", color: "#d1d5db" }}>
+                        {item.avgCost.toFixed(2)}
+                      </td>
+
+                      {/* P/L % */}
+                      <td style={{ padding: "14px 12px", textAlign: "center" }}>
+                        <span style={{ 
+                          fontWeight: "700", 
+                          color: isPos ? "#22c55e" : "#ef4444",
+                          backgroundColor: isPos ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                          padding: "4px 8px",
+                          borderRadius: "6px"
+                        }}>
+                          {isPos ? "+" : ""}{pnlPct.toFixed(2)}%
+                        </span>
+                      </td>
+
+                      {/* Net Value */}
+                      <td style={{ padding: "14px 12px", textAlign: "right", borderRadius: "0 8px 8px 0", fontWeight: "700", fontSize: "0.95rem", color: "#fff" }}>
+                        ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+              {authError 
+                ? authError 
+                : (authSuccess || (publicKey && privateKey))
+                  ? "0 open positions returned from eToro Demo Portfolio."
+                  : "No active eToro holdings found. Please enter and save your eToro Public and Private keys."}
+            </span>
+          )}
         </div>
 
         {/* Live Decisions Log */}
