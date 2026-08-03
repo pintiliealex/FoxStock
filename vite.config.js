@@ -10,6 +10,12 @@ export default defineConfig({
         target: 'https://query1.finance.yahoo.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api-yahoo/, '')
+      },
+      '/etoro-api': {
+        target: 'https://public-api.etoro.com',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/etoro-api/, '')
       }
     }
   }
