@@ -52,8 +52,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
   // Calculate NAV
   const totalValue = agentPortfolio.reduce((sum, item) => {
-    const sObj = stocks.find(s => s.symbol === item.symbol) || { price: item.symbol === "BTC" ? 64500 : item.avgCost };
-    return sum + (item.shares * sObj.price);
+    const sObj = stocks.find(s => s.symbol === item.symbol);
+    const curPrice = item.currentPrice || (sObj ? sObj.price : (item.symbol === "BTC" ? 64500 : item.avgCost));
+    return sum + (item.shares * curPrice);
   }, 0);
 
   // Generate NAV history dynamically based on current totalValue to keep chart and stats synced!
@@ -170,7 +171,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
         if (response.ok) {
           const data = await response.json();
-          payloadLogSnippet = JSON.stringify(data).substring(0, 140);
+          payloadLogSnippet = JSON.stringify(data).substring(0, 200);
           const rawItems = extractPositionsArray(data);
 
           fetchSuccess = true;
@@ -179,13 +180,42 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             const matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId) 
               || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
 
-            const posAmount = Number(pos.amount || pos.Amount || pos.units || pos.Units || pos.shares || pos.Shares || pos.volume || 1);
-            const posPrice = Number(pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || pos.avgCost || pos.AvgCost || pos.price || 100);
+            // Open Rate / Purchase Price per Unit
+            const openPrice = Number(
+              pos.openRate || pos.openPrice || pos.rate || pos.OpenRate || pos.OpenPrice || 
+              pos.avgCost || pos.AvgCost || pos.price || 100
+            );
+
+            // Current Market Price per Unit
+            const currentPrice = Number(
+              pos.currentRate || pos.currentPrice || pos.rate || pos.Rate || openPrice
+            );
+
+            // Units / Shares count
+            let shares = Number(pos.units || pos.Units || pos.shares || pos.Shares || pos.volume || 0);
+
+            // If units is 0 or missing, compute from invested dollar amount / openPrice
+            if (!shares || shares === 0) {
+              const investedAmount = Number(
+                pos.initialAmountInAccountCurrency || pos.amountInAccountCurrency || 
+                pos.investedAmount || pos.amount || pos.Amount || 100
+              );
+              shares = openPrice > 0 ? Number((investedAmount / openPrice).toFixed(6)) : 1;
+            } else {
+              shares = Number(shares.toFixed(6));
+            }
+
+            // Net position value in account currency
+            const netValue = Number(
+              pos.exposureInAccountCurrency || pos.currentAmount || (shares * currentPrice)
+            );
 
             return {
               symbol: matchedTicker.toUpperCase(),
-              shares: posAmount,
-              avgCost: posPrice
+              shares: shares,
+              avgCost: openPrice,
+              currentPrice: currentPrice,
+              netValue: netValue
             };
           });
           break;
@@ -210,7 +240,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       });
       setLogs(prev => [
         `[${timestamp}] eToro API Success (200): Synced ${loadedPositions.length} open position(s).`,
-        `[${timestamp}] eToro Data Payload: ${payloadLogSnippet}`,
+        `[${timestamp}] eToro Raw Position Fields: ${payloadLogSnippet}`,
         ...prev
       ].slice(0, 50));
     } else {
@@ -352,7 +382,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         if (existing) {
           existing.shares = Number((existing.shares + sharesCount).toFixed(4));
         } else {
-          next.push({ symbol: symbol, shares: sharesCount, avgCost: sObj.price });
+          next.push({ symbol: symbol, shares: sharesCount, avgCost: sObj.price, currentPrice: sObj.price, netValue: amountVal });
         }
       } else if (action.toUpperCase() === "SELL") {
         if (existing) {
@@ -722,8 +752,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {agentPortfolio.map((item) => {
-              const stock = stocks.find(s => s.symbol === item.symbol) || { price: item.symbol === "BTC" ? 64500 : item.avgCost, name: item.symbol };
-              const value = item.shares * stock.price;
+              const stock = stocks.find(s => s.symbol === item.symbol);
+              const curPrice = item.currentPrice || (stock ? stock.price : (item.symbol === "BTC" ? 64500 : item.avgCost));
+              const value = item.netValue || (item.shares * curPrice);
 
               return (
                 <div 
@@ -741,7 +772,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
                   <div style={{ textAlign: "left" }}>
                     <span style={{ fontWeight: "700", color: "#fff", display: "block" }}>{item.symbol}</span>
                     <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                      {item.shares} shares @ avg cost ${item.avgCost.toFixed(2)}
+                      {item.shares} units @ avg cost ${item.avgCost.toFixed(2)}
                     </span>
                   </div>
 
@@ -750,7 +781,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
                       ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                     <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginTop: "2px" }}>
-                      Current: ${stock.price.toFixed(2)}
+                      Current: ${curPrice.toFixed(2)}
                     </span>
                   </div>
                 </div>
