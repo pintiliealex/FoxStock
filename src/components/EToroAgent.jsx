@@ -20,16 +20,23 @@ const ETORO_INSTRUMENT_MAP = {
   "WMT": 1015,
   "DIS": 1018,
   "SOFI": 9255,
+  "NIO": 1127,
   "PLTR": 6224,
   "COIN": 6125,
   "INTC": 1008,
   "BAC": 1011,
-  "HOOD": 9260
+  "HOOD": 9260,
+  "BABA": 1049,
+  "SPY": 1060,
+  "QQQ": 1061,
+  "RIVN": 9265,
+  "LCID": 9262
 };
 
 // Company full names dictionary
 const COMPANY_NAME_MAP = {
   "SOFI": "SoFi Technologies Inc",
+  "NIO": "NIO Inc",
   "BTC": "Bitcoin (BTC)",
   "ETH": "Ethereum (ETH)",
   "AAPL": "Apple Inc",
@@ -45,12 +52,18 @@ const COMPANY_NAME_MAP = {
   "COIN": "Coinbase Global Inc",
   "INTC": "Intel Corp",
   "BAC": "Bank of America Corp",
-  "HOOD": "Robinhood Markets"
+  "HOOD": "Robinhood Markets",
+  "BABA": "Alibaba Group Holding",
+  "SPY": "SPDR S&P 500 ETF Trust",
+  "QQQ": "Invesco QQQ Trust",
+  "RIVN": "Rivian Automotive Inc",
+  "LCID": "Lucid Group Inc"
 };
 
 // Asset Real Logo Image Map
 const ASSET_LOGO_MAP = {
   "SOFI": "https://financialmodelingprep.com/image-stock/SOFI.png",
+  "NIO": "https://financialmodelingprep.com/image-stock/NIO.png",
   "BTC": "https://assets.coincap.io/assets/icons/btc@2x.png",
   "ETH": "https://assets.coincap.io/assets/icons/eth@2x.png",
   "AAPL": "https://financialmodelingprep.com/image-stock/AAPL.png",
@@ -66,7 +79,10 @@ const ASSET_LOGO_MAP = {
   "COIN": "https://financialmodelingprep.com/image-stock/COIN.png",
   "INTC": "https://financialmodelingprep.com/image-stock/INTC.png",
   "BAC": "https://financialmodelingprep.com/image-stock/BAC.png",
-  "HOOD": "https://financialmodelingprep.com/image-stock/HOOD.png"
+  "HOOD": "https://financialmodelingprep.com/image-stock/HOOD.png",
+  "BABA": "https://financialmodelingprep.com/image-stock/BABA.png",
+  "SPY": "https://financialmodelingprep.com/image-stock/SPY.png",
+  "QQQ": "https://financialmodelingprep.com/image-stock/QQQ.png"
 };
 
 export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig }) {
@@ -79,6 +95,9 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
   const [logs, setLogs] = useState(etoroConfig.trade_logs || []);
   const [agentPortfolio, setAgentPortfolio] = useState(etoroConfig.agent_portfolio || []);
   
+  // Dynamic instrument catalog cache fetched from eToro
+  const [dynamicCatalog, setDynamicCatalog] = useState({});
+
   // UI status and error states
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
@@ -97,6 +116,33 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
   useEffect(() => {
     stocksRef.current = stocks;
   }, [stocks]);
+
+  // Fetch eToro dynamic market instrument catalog to resolve ALL numeric instrument IDs
+  useEffect(() => {
+    const fetchInstrumentCatalog = async () => {
+      try {
+        const response = await fetch("/etoro-api/api/v1/market/instruments");
+        if (response.ok) {
+          const catalogData = await response.json();
+          const items = Array.isArray(catalogData) ? catalogData : (catalogData.instruments || catalogData.items || []);
+          const catalogMap = {};
+          items.forEach(inst => {
+            if (inst.instrumentID || inst.instrumentId) {
+              const id = inst.instrumentID || inst.instrumentId;
+              catalogMap[id] = {
+                symbol: (inst.symbol || inst.symbolName || inst.instrumentName || `INSTR-${id}`).toUpperCase(),
+                name: inst.instrumentDisplayName || inst.instrumentName || inst.symbol
+              };
+            }
+          });
+          setDynamicCatalog(catalogMap);
+        }
+      } catch (err) {
+        // Silent catalog fetch fallback
+      }
+    };
+    fetchInstrumentCatalog();
+  }, []);
 
   // Calculate NAV
   const totalValue = agentPortfolio.reduce((sum, item) => {
@@ -226,14 +272,17 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           loadedPositions = rawItems.map(pos => {
             const instId = pos.instrumentID || pos.instrumentId || pos.InstrumentID || pos.InstrumentId;
             
-            // Symbol resolution
+            // Symbol resolution via ETORO_INSTRUMENT_MAP, dynamic catalog, or fallback
             let matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId);
+            if (!matchedTicker && dynamicCatalog[instId]) {
+              matchedTicker = dynamicCatalog[instId].symbol;
+            }
             if (!matchedTicker) {
               matchedTicker = pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.symbolName || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
             }
 
             const cleanSymbol = matchedTicker.toString().toUpperCase().replace(/^INSTR-/, "");
-            const companyName = COMPANY_NAME_MAP[cleanSymbol] || pos.instrumentName || pos.companyName || `${cleanSymbol} Corp`;
+            const companyName = COMPANY_NAME_MAP[cleanSymbol] || (dynamicCatalog[instId]?.name) || pos.instrumentName || pos.companyName || `${cleanSymbol} Corp`;
 
             // Open Rate / Purchase Price per Unit
             const openPrice = Number(
@@ -410,55 +459,57 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json"
     };
 
-    // Official eToro order payload using numeric instrumentId
-    const payload = {
-      instrumentId: instrumentId,
-      action: action.toUpperCase(),
-      amount: amountVal || 100,
-      type: "MARKET"
-    };
+    // Format action to eToro capitalized string ("Buy" or "Sell")
+    const formattedAction = action.toUpperCase() === "BUY" ? "Buy" : "Sell";
+    const numAction = action.toUpperCase() === "BUY" ? 1 : 2;
+
+    // Candidate request body schemas expected by eToro's UnifiedOrder C# API
+    const payloadSchemas = [
+      { request: { instrumentId: instrumentId, action: formattedAction, amount: amountVal || 100, type: "Market" } },
+      { request: { instrumentId: instrumentId, action: numAction, amount: amountVal || 100, type: "Market" } },
+      { instrumentId: instrumentId, action: formattedAction, amount: amountVal || 100, type: "Market" },
+      { instrumentId: instrumentId, action: numAction, amount: amountVal || 100, type: "Market" }
+    ];
 
     const targetUrl = "/etoro-api/api/v2/trading/execution/demo/orders";
     let diagnosticLogs = [
       `[${timestamp}] --- EXECUTING ETORO TRADE ---`,
-      `[${timestamp}] Action: ${action.toUpperCase()} ${symbol} [instrumentId: ${instrumentId}] Amount: $${amountVal} USD`,
+      `[${timestamp}] Action: ${formattedAction} ${symbol} [instrumentId: ${instrumentId}] Amount: $${amountVal} USD`,
       `[${timestamp}] Endpoint: ${targetUrl}`
     ];
     let tradeSuccess = false;
+    let lastErrorMsg = "";
 
-    // 1. Attempt server proxy fetch
-    try {
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers: headers,
-        body: JSON.stringify(payload)
-      });
+    // Attempt candidates
+    for (const bodyPayload of payloadSchemas) {
+      if (tradeSuccess) break;
 
-      if (response.ok) {
-        const data = await response.json();
-        diagnosticLogs.push(`[${timestamp}] eToro Demo API Success (HTTP 200 Proxy): Order ID ${data.orderId || "98765432"} (${data.status || "Pending"})`);
-        tradeSuccess = true;
-      } else {
-        const errTxt = await response.text().catch(() => "");
-        diagnosticLogs.push(`[${timestamp}] Proxy POST Response: HTTP ${response.status} - ${errTxt || "Submitted"}`);
+      try {
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify(bodyPayload)
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          diagnosticLogs.push(`[${timestamp}] eToro Demo API Success (HTTP ${response.status}): Order ID ${data.orderId || "Order Submitted"} (${data.status || "Pending"})`);
+          tradeSuccess = true;
+          break;
+        } else {
+          lastErrorMsg = await response.text().catch(() => "");
+          diagnosticLogs.push(`[${timestamp}] POST Response: HTTP ${response.status} - ${lastErrorMsg.substring(0, 120)}`);
+        }
+      } catch (err) {
+        lastErrorMsg = err.message || "Network Error";
+        diagnosticLogs.push(`[${timestamp}] POST Exception: ${lastErrorMsg}`);
       }
-    } catch (err) {
-      // Direct CORS browser restriction
     }
 
-    if (!tradeSuccess) {
-      diagnosticLogs.push(`[${timestamp}] Order Synchronized: Submitted ${action.toUpperCase()} ${symbol} ($${amountVal} USD) for AI Agent execution.`);
-      tradeSuccess = true;
-    }
-
-    diagnosticLogs.push(`[${timestamp}] --- END ETORO TRADE ---`);
-
-    const nextLogs = [...diagnosticLogs, ...logs].slice(0, 50);
-    setLogs(nextLogs);
-
-    let nextPortfolio = agentPortfolio;
     if (tradeSuccess) {
-      // Compute updated portfolio position synchronously
+      diagnosticLogs.push(`[${timestamp}] Order Confirmed by eToro API: Submitted ${formattedAction} ${symbol} ($${amountVal} USD).`);
+      
+      // Update local holdings ONLY if trade execution succeeded on eToro API!
       const next = agentPortfolio.map(item => ({ ...item }));
       const existing = next.find(p => p.symbol === symbol);
       const sObj = stocks.find(s => s.symbol === symbol) || { price: symbol === "BTC" ? 64500 : 100 };
@@ -487,19 +538,24 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           existing.shares = Number(Math.max(0, existing.shares - sharesCount).toFixed(5));
         }
       }
-      nextPortfolio = next.filter(p => p.shares > 0);
+      const nextPortfolio = next.filter(p => p.shares > 0);
       setAgentPortfolio(nextPortfolio);
+
+      // Sync to database immediately
+      onUpdateEtoroConfig({
+        public_key: cleanPub,
+        private_key: cleanPriv,
+        strategy_prompt: strategyPrompt,
+        check_interval: parseInt(checkInterval) || 5,
+        agent_portfolio: nextPortfolio,
+        trade_logs: [...diagnosticLogs, ...logs].slice(0, 50)
+      });
+    } else {
+      diagnosticLogs.push(`[${timestamp}] ❌ Trade Order Rejected by eToro API (HTTP 400 Validation Error). Holdings untouched.`);
     }
 
-    // Sync to database immediately
-    onUpdateEtoroConfig({
-      public_key: cleanPub,
-      private_key: cleanPriv,
-      strategy_prompt: strategyPrompt,
-      check_interval: parseInt(checkInterval) || 5,
-      agent_portfolio: nextPortfolio,
-      trade_logs: nextLogs
-    });
+    diagnosticLogs.push(`[${timestamp}] --- END ETORO TRADE ---`);
+    setLogs(prev => [...diagnosticLogs, ...prev].slice(0, 50));
   };
 
   // Evaluation loop according to user-defined checkInterval (in Minutes)
