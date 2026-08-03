@@ -13,14 +13,14 @@ const ETORO_INSTRUMENT_MAP = {
   "AMZN": 1004,
   "GOOGL": 1005,
   "META": 1006,
-  "NFLX": 1007,
+  "NFLX": 1127,
   "AMD": 1048,
   "JPM": 1010,
   "V": 1012,
   "WMT": 1015,
   "DIS": 1018,
   "SOFI": 9255,
-  "NIO": 1127,
+  "NIO": 1128,
   "PLTR": 6224,
   "COIN": 6125,
   "INTC": 1008,
@@ -36,6 +36,7 @@ const ETORO_INSTRUMENT_MAP = {
 // Company full names dictionary
 const COMPANY_NAME_MAP = {
   "SOFI": "SoFi Technologies Inc",
+  "NFLX": "Netflix Inc",
   "NIO": "NIO Inc",
   "BTC": "Bitcoin (BTC)",
   "ETH": "Ethereum (ETH)",
@@ -46,7 +47,6 @@ const COMPANY_NAME_MAP = {
   "AMZN": "Amazon.com Inc",
   "GOOGL": "Alphabet Inc",
   "META": "Meta Platforms Inc",
-  "NFLX": "Netflix Inc",
   "AMD": "Advanced Micro Devices",
   "PLTR": "Palantir Technologies",
   "COIN": "Coinbase Global Inc",
@@ -63,6 +63,7 @@ const COMPANY_NAME_MAP = {
 // Asset Real Logo Image Map
 const ASSET_LOGO_MAP = {
   "SOFI": "https://financialmodelingprep.com/image-stock/SOFI.png",
+  "NFLX": "https://financialmodelingprep.com/image-stock/NFLX.png",
   "NIO": "https://financialmodelingprep.com/image-stock/NIO.png",
   "BTC": "https://assets.coincap.io/assets/icons/btc@2x.png",
   "ETH": "https://assets.coincap.io/assets/icons/eth@2x.png",
@@ -73,7 +74,6 @@ const ASSET_LOGO_MAP = {
   "AMZN": "https://financialmodelingprep.com/image-stock/AMZN.png",
   "GOOGL": "https://financialmodelingprep.com/image-stock/GOOGL.png",
   "META": "https://financialmodelingprep.com/image-stock/META.png",
-  "NFLX": "https://financialmodelingprep.com/image-stock/NFLX.png",
   "AMD": "https://financialmodelingprep.com/image-stock/AMD.png",
   "PLTR": "https://financialmodelingprep.com/image-stock/PLTR.png",
   "COIN": "https://financialmodelingprep.com/image-stock/COIN.png",
@@ -124,14 +124,14 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         const response = await fetch("/etoro-api/api/v1/market/instruments");
         if (response.ok) {
           const catalogData = await response.json();
-          const items = Array.isArray(catalogData) ? catalogData : (catalogData.instruments || catalogData.items || []);
+          const items = Array.isArray(catalogData) ? catalogData : (catalogData.instruments || catalogData.items || catalogData.InstrumentDisplayDatas || []);
           const catalogMap = {};
           items.forEach(inst => {
-            if (inst.instrumentID || inst.instrumentId) {
-              const id = inst.instrumentID || inst.instrumentId;
+            const id = inst.instrumentID || inst.instrumentId || inst.InstrumentID;
+            if (id) {
               catalogMap[id] = {
-                symbol: (inst.symbol || inst.symbolName || inst.instrumentName || `INSTR-${id}`).toUpperCase(),
-                name: inst.instrumentDisplayName || inst.instrumentName || inst.symbol
+                symbol: (inst.symbol || inst.symbolName || inst.SymbolName || inst.instrumentName || inst.InstrumentDisplayName || `INSTR-${id}`).toUpperCase(),
+                name: inst.instrumentDisplayName || inst.instrumentName || inst.symbol || inst.InstrumentDisplayName
               };
             }
           });
@@ -272,13 +272,22 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
           loadedPositions = rawItems.map(pos => {
             const instId = pos.instrumentID || pos.instrumentId || pos.InstrumentID || pos.InstrumentId;
             
-            // Symbol resolution via ETORO_INSTRUMENT_MAP, dynamic catalog, or fallback
-            let matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId);
+            // STRICT Symbol Resolution Precedence:
+            // 1. Direct eToro returned symbol/symbolName/ticker field
+            // 2. eToro dynamic market instruments catalog lookup by instId
+            // 3. Fallback static instrument map
+            let matchedTicker = pos.symbol || pos.Symbol || pos.symbolName || pos.SymbolName || pos.ticker || pos.Ticker;
+
             if (!matchedTicker && dynamicCatalog[instId]) {
               matchedTicker = dynamicCatalog[instId].symbol;
             }
+
             if (!matchedTicker) {
-              matchedTicker = pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.symbolName || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
+              matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId);
+            }
+
+            if (!matchedTicker) {
+              matchedTicker = pos.instrumentName || pos.InstrumentName || (instId ? `INSTR-${instId}` : "BTC");
             }
 
             const cleanSymbol = matchedTicker.toString().toUpperCase().replace(/^INSTR-/, "");
@@ -459,22 +468,21 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json"
     };
 
-    // Format action to eToro capitalized string ("Buy" or "Sell")
-    const formattedAction = action.toUpperCase() === "BUY" ? "Buy" : "Sell";
-    const numAction = action.toUpperCase() === "BUY" ? 1 : 2;
+    // Format action to eToro valid transaction type string ("Buy", "Sell", "SellShort", "BuyToCover")
+    const transactionType = action.toUpperCase() === "BUY" ? "Buy" : "Sell";
 
-    // Candidate request body schemas expected by eToro's UnifiedOrder C# API
+    // Candidate request body schemas matching eToro's C# UnifiedOrder DTO Validation rules
     const payloadSchemas = [
-      { request: { instrumentId: instrumentId, action: formattedAction, amount: amountVal || 100, type: "Market" } },
-      { request: { instrumentId: instrumentId, action: numAction, amount: amountVal || 100, type: "Market" } },
-      { instrumentId: instrumentId, action: formattedAction, amount: amountVal || 100, type: "Market" },
-      { instrumentId: instrumentId, action: numAction, amount: amountVal || 100, type: "Market" }
+      { request: { instrumentId: instrumentId, transaction: transactionType, amount: amountVal || 100, type: "Market" } },
+      { request: { instrumentId: instrumentId, transactionType: transactionType, amount: amountVal || 100, type: "Market" } },
+      { request: { instrumentId: instrumentId, transaction: transactionType, amount: { amount: amountVal || 100, currency: "USD" } } },
+      { instrumentId: instrumentId, transaction: transactionType, amount: amountVal || 100 }
     ];
 
     const targetUrl = "/etoro-api/api/v2/trading/execution/demo/orders";
     let diagnosticLogs = [
       `[${timestamp}] --- EXECUTING ETORO TRADE ---`,
-      `[${timestamp}] Action: ${formattedAction} ${symbol} [instrumentId: ${instrumentId}] Amount: $${amountVal} USD`,
+      `[${timestamp}] Transaction: ${transactionType} ${symbol} [instrumentId: ${instrumentId}] Amount: $${amountVal} USD`,
       `[${timestamp}] Endpoint: ${targetUrl}`
     ];
     let tradeSuccess = false;
@@ -507,7 +515,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     }
 
     if (tradeSuccess) {
-      diagnosticLogs.push(`[${timestamp}] Order Confirmed by eToro API: Submitted ${formattedAction} ${symbol} ($${amountVal} USD).`);
+      diagnosticLogs.push(`[${timestamp}] Order Confirmed by eToro API: Submitted ${transactionType} ${symbol} ($${amountVal} USD).`);
       
       // Update local holdings ONLY if trade execution succeeded on eToro API!
       const next = agentPortfolio.map(item => ({ ...item }));
