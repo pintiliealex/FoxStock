@@ -67,7 +67,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     totalValue
   ];
 
-  // Fetch holdings/positions directly from eToro API
+  // Fetch holdings/positions directly from eToro API via server proxy & direct routes
   const fetchEtoroHoldings = async () => {
     setAuthError("");
     setAuthSuccess("");
@@ -84,7 +84,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
     const cleanPub = publicKey.trim();
     const cleanPriv = privateKey.trim();
-    const maskedPub = cleanPub.length > 6 ? `${cleanPub.substring(0, 4)}...${cleanPub.substring(cleanPub.length - 2)}` : cleanPub;
+    const maskedPub = cleanPub.length > 6 ? `${cleanPub.substring(0, 4)}...${cleanPub.substring(cleanPriv.length - 2)}` : cleanPub;
 
     // Exact 4 official eToro headers
     const headers = {
@@ -94,33 +94,41 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       "Content-Type": "application/json"
     };
 
-    const targetUrl = `https://public-api.etoro.com/api/v1/trading/info/demo/portfolio/breakdown?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`;
+    const endpoints = [
+      `/etoro-api/api/v1/trading/info/demo/portfolio/breakdown?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`,
+      `/etoro-api/api/v1/trading/info/demo/pnl?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`,
+      `https://public-api.etoro.com/api/v1/trading/info/demo/portfolio/breakdown?x-api-key=${encodeURIComponent(cleanPub)}&x-user-key=${encodeURIComponent(cleanPriv)}`
+    ];
 
     let fetchSuccess = false;
     let loadedPositions = [];
 
-    try {
-      const response = await fetch(targetUrl, { method: "GET", headers: headers });
-      if (response.ok) {
-        const data = await response.json();
-        const rawItems = Array.isArray(data) 
-          ? data 
-          : (data.portfolioBreakdown || data.breakdown || data.pnl || data.openPositions || data.positions || data.items || []);
+    for (const targetUrl of endpoints) {
+      if (fetchSuccess) break;
+      try {
+        const response = await fetch(targetUrl, { method: "GET", headers: headers });
+        if (response.ok) {
+          const data = await response.json();
+          const rawItems = Array.isArray(data) 
+            ? data 
+            : (data.portfolioBreakdown || data.breakdown || data.pnl || data.openPositions || data.positions || data.items || []);
 
-        fetchSuccess = true;
-        loadedPositions = rawItems.map(pos => {
-          const instId = pos.instrumentId || pos.instrumentID || pos.InstrumentID || pos.InstrumentId;
-          const matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId) 
-            || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
-          return {
-            symbol: matchedTicker.toUpperCase(),
-            shares: Number(pos.shares || pos.Shares || pos.units || pos.Units || pos.amount || pos.Amount || 1),
-            avgCost: Number(pos.avgCost || pos.AvgCost || pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || 100)
-          };
-        });
+          fetchSuccess = true;
+          loadedPositions = rawItems.map(pos => {
+            const instId = pos.instrumentId || pos.instrumentID || pos.InstrumentID || pos.InstrumentId;
+            const matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId) 
+              || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
+            return {
+              symbol: matchedTicker.toUpperCase(),
+              shares: Number(pos.shares || pos.Shares || pos.units || pos.Units || pos.amount || pos.Amount || 1),
+              avgCost: Number(pos.avgCost || pos.AvgCost || pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || 100)
+            };
+          });
+          break;
+        }
+      } catch (err) {
+        // Continue to next endpoint route
       }
-    } catch (err) {
-      // Browser CORS security policy
     }
 
     if (fetchSuccess) {
@@ -139,7 +147,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       setAuthSuccess("eToro Keys Authenticated & Verified! (Active positions synced for AI Trading Agent).");
       setLogs(prev => [
         `[${timestamp}] eToro API Verified: Public & Private Keys authenticated. Agent ready for strategy execution.`,
-        `[${timestamp}] Endpoint: https://public-api.etoro.com/api/v1/trading/info/demo/portfolio/breakdown`,
+        `[${timestamp}] Target Endpoint: /etoro-api/api/v1/trading/info/demo/portfolio/breakdown`,
         `[${timestamp}] Authenticated Key Signature: x-api-key=${maskedPub} | request-id=${requestId}`,
         ...prev
       ].slice(0, 50));
@@ -187,7 +195,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     fetchEtoroHoldings();
   };
 
-  // eToro API order execution (Demo Sandbox URL: https://public-api.etoro.com/api/v2/trading/execution/demo/orders)
+  // eToro API order execution (Demo Sandbox URL: /etoro-api/api/v2/trading/execution/demo/orders)
   const executeEtoroTrade = async (symbol, action, amountVal) => {
     const timestamp = new Date().toLocaleTimeString();
     const requestId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -214,7 +222,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       type: "MARKET"
     };
 
-    const targetUrl = "https://public-api.etoro.com/api/v2/trading/execution/demo/orders";
+    const targetUrl = "/etoro-api/api/v2/trading/execution/demo/orders";
     let diagnosticLogs = [
       `[${timestamp}] --- EXECUTING ETORO TRADE ---`,
       `[${timestamp}] Action: ${action.toUpperCase()} ${symbol} [instrumentId: ${instrumentId}] Amount: $${amountVal} USD`,
@@ -222,7 +230,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     ];
     let tradeSuccess = false;
 
-    // 1. Attempt direct fetch
+    // 1. Attempt server proxy fetch
     try {
       const response = await fetch(targetUrl, {
         method: "POST",
@@ -232,34 +240,14 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
       if (response.ok) {
         const data = await response.json();
-        diagnosticLogs.push(`[${timestamp}] eToro Demo API Success (HTTP 200 Direct): Order ID ${data.orderId || "98765432"} (${data.status || "Pending"})`);
+        diagnosticLogs.push(`[${timestamp}] eToro Demo API Success (HTTP 200 Proxy): Order ID ${data.orderId || "98765432"} (${data.status || "Pending"})`);
         tradeSuccess = true;
       } else {
         const errTxt = await response.text().catch(() => "");
-        diagnosticLogs.push(`[${timestamp}] Direct POST Response: HTTP ${response.status} - ${errTxt || "Submitted"}`);
+        diagnosticLogs.push(`[${timestamp}] Proxy POST Response: HTTP ${response.status} - ${errTxt || "Submitted"}`);
       }
     } catch (err) {
       // Direct CORS browser restriction
-    }
-
-    // 2. Attempt proxy fetch if direct fetch failed
-    if (!tradeSuccess) {
-      try {
-        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-        const response = await fetch(proxyUrl, {
-          method: "POST",
-          headers: headers,
-          body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          diagnosticLogs.push(`[${timestamp}] eToro Demo API Success (HTTP 200 CorsProxy): Order ID ${data.orderId || "98765432"} (${data.status || "Pending"})`);
-          tradeSuccess = true;
-        }
-      } catch (err) {
-        // Proxy failed
-      }
     }
 
     if (!tradeSuccess) {
