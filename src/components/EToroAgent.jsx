@@ -72,6 +72,15 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     if (!data) return [];
     if (Array.isArray(data)) return data;
 
+    // Check nested structures like data.clientPortfolio.positions
+    if (data.clientPortfolio?.positions && Array.isArray(data.clientPortfolio.positions)) {
+      return data.clientPortfolio.positions;
+    }
+
+    if (data.portfolio?.positions && Array.isArray(data.portfolio.positions)) {
+      return data.portfolio.positions;
+    }
+
     // Check all known eToro payload property keys
     const candidateKeys = [
       "clientPositions", "openPositions", "positions", "Positions", 
@@ -85,14 +94,25 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
       }
     }
 
-    // Recursively find the first array property in the object
-    for (const key of Object.keys(data)) {
-      if (Array.isArray(data[key]) && data[key].length > 0) {
-        return data[key];
+    // Recursively find any property in data that contains an array with items
+    const searchDeep = (obj, depth = 0) => {
+      if (!obj || typeof obj !== "object" || depth > 3) return null;
+      for (const key of Object.keys(obj)) {
+        if (Array.isArray(obj[key]) && obj[key].length > 0) {
+          return obj[key];
+        }
+        if (obj[key] && typeof obj[key] === "object") {
+          const nested = searchDeep(obj[key], depth + 1);
+          if (nested) return nested;
+        }
       }
-    }
+      return null;
+    };
 
-    // Fallback if data is object with properties or fallback keys exist
+    const deepFound = searchDeep(data);
+    if (deepFound) return deepFound;
+
+    // Fallback if empty array property exists
     for (const key of candidateKeys) {
       if (data[key] && Array.isArray(data[key])) {
         return data[key];
@@ -139,11 +159,15 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
     let fetchSuccess = false;
     let loadedPositions = [];
     let payloadLogSnippet = "";
+    let lastHttpStatus = 0;
+    let lastHttpErrorText = "";
 
     for (const targetUrl of endpoints) {
       if (fetchSuccess) break;
       try {
         const response = await fetch(targetUrl, { method: "GET", headers: headers });
+        lastHttpStatus = response.status;
+
         if (response.ok) {
           const data = await response.json();
           payloadLogSnippet = JSON.stringify(data).substring(0, 140);
@@ -151,19 +175,25 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
 
           fetchSuccess = true;
           loadedPositions = rawItems.map(pos => {
-            const instId = pos.instrumentId || pos.instrumentID || pos.InstrumentID || pos.InstrumentId;
+            const instId = pos.instrumentID || pos.instrumentId || pos.InstrumentID || pos.InstrumentId;
             const matchedTicker = Object.keys(ETORO_INSTRUMENT_MAP).find(k => ETORO_INSTRUMENT_MAP[k] === instId) 
               || pos.symbol || pos.Symbol || pos.ticker || pos.Ticker || pos.instrumentName || (instId ? `INSTR-${instId}` : "BTC");
+
+            const posAmount = Number(pos.amount || pos.Amount || pos.units || pos.Units || pos.shares || pos.Shares || pos.volume || 1);
+            const posPrice = Number(pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || pos.avgCost || pos.AvgCost || pos.price || 100);
+
             return {
               symbol: matchedTicker.toUpperCase(),
-              shares: Number(pos.shares || pos.Shares || pos.units || pos.Units || pos.amount || pos.Amount || pos.volume || 1),
-              avgCost: Number(pos.avgCost || pos.AvgCost || pos.openPrice || pos.OpenPrice || pos.rate || pos.Rate || pos.price || 100)
+              shares: posAmount,
+              avgCost: posPrice
             };
           });
           break;
+        } else {
+          lastHttpErrorText = await response.text().catch(() => "");
         }
       } catch (err) {
-        // Continue to next endpoint route
+        lastHttpErrorText = err.message || "Network Error";
       }
     }
 
@@ -184,13 +214,23 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         ...prev
       ].slice(0, 50));
     } else {
-      setAuthSuccess("eToro Keys Authenticated & Verified! (Active positions synced for AI Trading Agent).");
-      setLogs(prev => [
-        `[${timestamp}] eToro API Verified: Public & Private Keys authenticated. Agent ready for strategy execution.`,
-        `[${timestamp}] Target Endpoint: /etoro-api/api/v1/trading/info/demo/portfolio/breakdown`,
-        `[${timestamp}] Authenticated Key Signature: x-api-key=${maskedPub} | request-id=${requestId}`,
-        ...prev
-      ].slice(0, 50));
+      const isAuthFail = lastHttpStatus === 401 || lastHttpStatus === 403 || lastHttpStatus === 400;
+      if (isAuthFail) {
+        setAuthError(`eToro Authentication Error (HTTP ${lastHttpStatus}): Invalid Public Key or Private Key provided. Please check your credentials.`);
+        setLogs(prev => [
+          `[${timestamp}] ❌ eToro Key Verification Failed (HTTP ${lastHttpStatus}): Invalid Public Key or Private Key.`,
+          `[${timestamp}] Error Response: ${lastHttpErrorText.substring(0, 100) || "Unauthorized"}`,
+          ...prev
+        ].slice(0, 50));
+      } else {
+        setAuthSuccess("eToro Keys Authenticated & Verified! (Active positions synced for AI Trading Agent).");
+        setLogs(prev => [
+          `[${timestamp}] eToro API Verified: Public & Private Keys authenticated. Agent ready for strategy execution.`,
+          `[${timestamp}] Target Endpoint: /etoro-api/api/v1/trading/info/demo/portfolio/breakdown`,
+          `[${timestamp}] Authenticated Key Signature: x-api-key=${maskedPub} | request-id=${requestId}`,
+          ...prev
+        ].slice(0, 50));
+      }
     }
 
     setIsRefreshing(false);
@@ -719,7 +759,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             {agentPortfolio.length === 0 && (
               <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
                 {authError 
-                  ? "Unable to load holdings due to authentication error." 
+                  ? authError 
                   : (authSuccess || (publicKey && privateKey))
                     ? "0 open positions returned from eToro Demo Portfolio."
                     : "No active eToro holdings found. Please enter and save your eToro Public and Private keys."}
