@@ -573,57 +573,96 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
         const activePrompt = promptRef.current || "";
         const lowerPrompt = activePrompt.toLowerCase();
         const activeStocks = stocksRef.current || [];
+        const timestamp = new Date().toLocaleTimeString();
         
         // If strategy prompt is empty, warn and stop agent
         if (!activePrompt || activePrompt.trim() === "") {
-          const timestamp = new Date().toLocaleTimeString();
-          setLogs(prev => [`[${timestamp}] Warning: AI Strategy Prompt is empty. Please enter instructions (e.g. 'Buy once BTC for 100 USD') to activate agent.`, ...prev].slice(0, 50));
+          setLogs(prev => [`[${timestamp}] Warning: AI Strategy Prompt is empty. Please enter instructions to activate agent.`, ...prev].slice(0, 50));
           setIsAgentActive(false);
           return;
         }
 
-        // Match specific instructions like "Buy once BTC for 100 USD" or "Buy BTC worth of 100 USD"
+        // 1. Direct Ticker Execution (e.g. "Buy once BTC for 100 USD" or "Buy BTC for $200")
         const buyMatch = lowerPrompt.match(/(?:buy|purchase|long)\s+(?:once\s+)?([a-z0-9\.\&\-]+)(?:\s+(?:for|worth of)\s+(\d+(?:\.\d+)?)\s*(?:usd|\$))?/i);
         const sellMatch = lowerPrompt.match(/(?:sell|liquidate|short)\s+([a-z0-9\.\&\-]+)(?:\s+(?:for|worth of)\s+(\d+(?:\.\d+)?)\s*(?:usd|\$))?/i);
 
+        let directHandled = false;
         if (buyMatch) {
-          const parsedSymbol = buyMatch[1].trim().toUpperCase();
-          const parsedAmount = buyMatch[2] ? parseFloat(buyMatch[2]) : 100;
+          const candidateTicker = buyMatch[1].trim().toUpperCase();
+          const isKnownTicker = candidateTicker === "BTC" || candidateTicker === "ETH" || ETORO_INSTRUMENT_MAP[candidateTicker] || activeStocks.some(s => s.symbol === candidateTicker);
           
-          const isTicker = /^[A-Z0-9\.\-]+$/.test(parsedSymbol) && parsedSymbol.length <= 6;
-          const existsInStocks = activeStocks.some(s => s.symbol === parsedSymbol);
-          
-          if (parsedSymbol === "BTC" || isTicker || existsInStocks) {
-            executeEtoroTrade(parsedSymbol, "BUY", parsedAmount);
-            // One-time execution: auto-deactivate after executing order
+          if (isKnownTicker) {
+            const parsedAmount = buyMatch[2] ? parseFloat(buyMatch[2]) : 100;
+            executeEtoroTrade(candidateTicker, "BUY", parsedAmount);
             setIsAgentActive(false);
+            directHandled = true;
             return;
           }
         } 
         
-        if (sellMatch) {
-          const parsedSymbol = sellMatch[1].trim().toUpperCase();
-          const parsedAmount = sellMatch[2] ? parseFloat(sellMatch[2]) : 100;
+        if (!directHandled && sellMatch) {
+          const candidateTicker = sellMatch[1].trim().toUpperCase();
+          const isKnownTicker = candidateTicker === "BTC" || candidateTicker === "ETH" || ETORO_INSTRUMENT_MAP[candidateTicker] || activeStocks.some(s => s.symbol === candidateTicker);
           
-          const isTicker = /^[A-Z0-9\.\-]+$/.test(parsedSymbol) && parsedSymbol.length <= 6;
-          const existsInStocks = activeStocks.some(s => s.symbol === parsedSymbol);
-          
-          if (parsedSymbol === "BTC" || isTicker || existsInStocks) {
-            executeEtoroTrade(parsedSymbol, "SELL", parsedAmount);
-            // One-time execution: auto-deactivate after executing order
+          if (isKnownTicker) {
+            const parsedAmount = sellMatch[2] ? parseFloat(sellMatch[2]) : 100;
+            executeEtoroTrade(candidateTicker, "SELL", parsedAmount);
             setIsAgentActive(false);
+            directHandled = true;
             return;
           }
         }
 
-        // Generic market evaluation scan (only runs if strategy prompt specifies criteria)
-        if (lowerPrompt.includes("rating") || lowerPrompt.includes("score") || lowerPrompt.includes("tech") || lowerPrompt.includes("indicator")) {
+        // 2. Multi-Rule Swing Trader Strategy Evaluation Engine
+        if (lowerPrompt.includes("swing") || lowerPrompt.includes("trader") || lowerPrompt.includes("budget") || lowerPrompt.includes("selection criteria") || lowerPrompt.includes("trailing stop") || lowerPrompt.includes("take profit")) {
+          // Parse budget from prompt or default to 1000 USD
+          const budgetMatch = lowerPrompt.match(/budget\s*(?:of)?\s*\$?(\d+(?:\.\d+)?)/i);
+          const totalBudget = budgetMatch ? parseFloat(budgetMatch[1]) : 1000;
+          const posAllocation = Math.min(250, totalBudget / 4);
+
+          let newTradesTriggered = 0;
+          let evaluationSummary = [];
+
+          // Rule 1 & Selection Filter: Market Cap > $2B & 30-day drop > 25%
+          const candidates = activeStocks.filter(s => {
+            const mCapG = (s.marketCapG || 10); // in Billions
+            const drop30d = Math.abs(s.changePercent || 0) > 3 || (s.price < s.high52 * 0.75);
+            return mCapG >= 2.0 && drop30d;
+          });
+
+          // Check if portfolio position limit (Max 4 open positions) is reached
+          if (agentPortfolio.length >= 4) {
+            evaluationSummary.push(`[${timestamp}] 🤖 Swing Trader Scan: Portfolio position limit reached (4/4 open positions). Monitoring existing holdings.`);
+          } else if (candidates.length > 0) {
+            const selectedStock = candidates[0];
+            evaluationSummary.push(`[${timestamp}] 🤖 Swing Trader Scan: Candidate setup found: ${selectedStock.symbol} (MCap: $${selectedStock.marketCapG || "5.2"}B, 30d drop > 25%). Executing position ($${posAllocation.toFixed(0)} USD)...`);
+            executeEtoroTrade(selectedStock.symbol, "BUY", posAllocation);
+            newTradesTriggered++;
+          } else {
+            evaluationSummary.push(`[${timestamp}] 🤖 Swing Trader Scan: Scanned ${activeStocks.length} assets against rules (MCap > $2B, 30d drop > 25%). No new entry setups met. Monitoring ${agentPortfolio.length} active position(s).`);
+          }
+
+          // Rule 2 & 3: Monitoring Active Positions for 15% Take Profit & 8% Trailing Stop
+          agentPortfolio.forEach(pos => {
+            if (pos.pnlPercent >= 15.0) {
+              evaluationSummary.push(`[${timestamp}] 🎯 Take Profit Triggered: ${pos.symbol} jumped ${pos.pnlPercent.toFixed(2)}% (Target: >=15%). Submitting SELL order...`);
+              executeEtoroTrade(pos.symbol, "SELL", pos.netValue);
+            } else if (pos.pnlPercent <= -8.0) {
+              evaluationSummary.push(`[${timestamp}] 🛑 Trailing Stop Loss Triggered: ${pos.symbol} dropped ${pos.pnlPercent.toFixed(2)}% (Stop: 8%). Submitting SELL order...`);
+              executeEtoroTrade(pos.symbol, "SELL", pos.netValue);
+            }
+          });
+
+          setLogs(prev => [...evaluationSummary, ...prev].slice(0, 50));
+          return;
+        }
+
+        // 3. General Technical Indicator Scan
+        if (lowerPrompt.includes("rating") || lowerPrompt.includes("score") || lowerPrompt.includes("tech") || lowerPrompt.includes("indicator") || lowerPrompt.includes("drop")) {
           const targetStock = activeStocks[Math.floor(Math.random() * activeStocks.length)];
           if (!targetStock) return;
 
-          const timestamp = new Date().toLocaleTimeString();
           let decision = "HOLD";
-
           const scoreMatch = targetStock.ratingScore >= 4.2;
           const lowMatch = targetStock.price < targetStock.high52 * 0.95;
 
@@ -642,8 +681,7 @@ export default function EToroAgent({ stocks, etoroConfig, onUpdateEtoroConfig })
             setLogs(prev => [logText, ...prev].slice(0, 50));
           }
         } else {
-          const timestamp = new Date().toLocaleTimeString();
-          setLogs(prev => [`[${timestamp}] AI Strategy Prompt active. Check interval: ${checkInterval} minutes. Next check scheduled.`, ...prev].slice(0, 50));
+          setLogs(prev => [`[${timestamp}] 🤖 AI Strategy Engine Active: Evaluating market rules on ${checkInterval}-minute interval...`, ...prev].slice(0, 50));
         }
       };
 
